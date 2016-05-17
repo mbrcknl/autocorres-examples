@@ -10,6 +10,7 @@ definition reach :: "('a \<Rightarrow> 'a set) \<Rightarrow> 'a set \<Rightarrow
 
 context graph_mark begin
 
+type_synonym mark = "32 word"
 type_synonym state_pred = "lifted_globals \<Rightarrow> bool"
 
 definition ptr_ok :: "node_C ptr \<Rightarrow> state_pred" where
@@ -66,10 +67,12 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
         F = U - set path
       in
         P t \<and>
-        Some u = path_upd s M root q p path \<and>
-        t = mark_set U u \<and>
+        set path \<subseteq> R \<and>
+        M \<subseteq> R \<and>
         R = reach (out s) (roots (p,q)) \<and>
         M = reach (out t) M \<and>
+        Some u = path_upd s M root q p path \<and>
+        t = mark_set U u \<and>
         (\<forall> p \<in> R. ptr_ok p s) \<and>
         (\<forall> p \<in> M. s[p]\<rightarrow>mark = 3) \<and>
         (\<forall> p \<in> F. s[p]\<rightarrow>mark = 0))"
@@ -78,19 +81,41 @@ primrec mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_global
   "mark_measure (r,s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach (out s) (roots r))"
 
 definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
-  "mark_incr p \<equiv> heap_node_C_update (\<lambda>s. s(p := mark_C_update (\<lambda>m. m + 1) (s p)))"
+  "mark_incr p \<equiv> heap_node_C_update (\<lambda> h. h(p := mark_C_update (\<lambda> m. m + 1) (h p)))"
 
 lemma mark_incr_mark [simp]: "(mark_incr p s)[p]\<rightarrow>mark = s[p]\<rightarrow>mark + 1"
+  unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_mark_def)
+
+lemma mark_incr_left [simp]: "(mark_incr q s)[p]\<rightarrow>left = s[p]\<rightarrow>left"
+  unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_left_def)
+
+lemma mark_incr_right [simp]: "(mark_incr q s)[p]\<rightarrow>right = s[p]\<rightarrow>right"
+  unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_right_def)
+
+lemma out_mark_incr [simp]: "out (mark_incr q s) = out s"
+  unfolding out_def[abs_def] by auto
+
+lemma mark_set_left [simp]: "(mark_set R s)[p]\<rightarrow>left = s[p]\<rightarrow>left"
+  unfolding mark_set_def mark_def by (simp add: graph_mark.get_node_left_def)
+
+lemma mark_set_right [simp]: "(mark_set R s)[p]\<rightarrow>right = s[p]\<rightarrow>right"
+  unfolding mark_set_def mark_def by (simp add: graph_mark.get_node_right_def)
+
+lemma out_mark_set [simp]: "out (mark_set R s) = out s"
+  unfolding out_def[abs_def] by auto
+
+lemma mark_incr_node_valid [simp]: "is_valid_node_C (mark_incr q s) p = is_valid_node_C s p"
+  unfolding mark_incr_def by simp
+
+lemma mark_incr_left_upd [simp]:"(mark_incr q s)[p\<rightarrow>left := v] = mark_incr q s[p\<rightarrow>left := v]"
   unfolding mark_incr_def
-  by (metis (no_types, lifting)
-            fun_upd_same graph_mark.get_node_mark_def graph_mark.heap_abs_simps(8)
-            graph_mark.update_node_def lifted_globals.unfold_congs(5) node_C_accupd_same(3))
+  by (smt fun_upd_def fun_upd_twist fun_upd_upd graph_mark.update_node_left_def
+          lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(2))
 
-lemma mark_incr_left [simp]: "(mark_incr p s)[p]\<rightarrow>left = s[p]\<rightarrow>left"
-  unfolding mark_incr_def by (simp add: fun_upd_same graph_mark.get_node_left_def)
-
-lemma mark_incr_right [simp]: "(mark_incr p s)[p]\<rightarrow>right = s[p]\<rightarrow>right"
-  unfolding mark_incr_def by (simp add: fun_upd_same graph_mark.get_node_right_def)
+lemma mark_incr_right_upd [simp]:"(mark_incr q s)[p\<rightarrow>right := v] = mark_incr q s[p\<rightarrow>right := v]"
+  unfolding mark_incr_def
+  by (smt fun_upd_def fun_upd_twist fun_upd_upd graph_mark.update_node_right_def
+          lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1))
 
 lemma graph_mark'_correct: "\<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
   unfolding
@@ -101,9 +126,15 @@ lemma graph_mark'_correct: "\<lbrace> mark_precondition P root \<rbrace> graph_m
   subgoal for p q s t u path M
    sorry
   subgoal for q s t u path M
+   apply (clarsimp simp: Let_def)
    sorry
   subgoal for s
-   sorry
+   apply (rule exI[where x="mark_set (reach (out s) {root}) s"])
+   apply (rule exI[where x=s])
+   apply (rule exI[where x="[root]"])
+   apply (rule exI[where x="{}"])
+   apply (simp add: Let_def)
+   by (auto simp: reach_def ptr_ok_def)
   done
 
 end
