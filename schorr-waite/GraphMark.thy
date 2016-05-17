@@ -21,9 +21,12 @@ definition out :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C 
 definition mark :: "bool \<Rightarrow> node_C \<Rightarrow> node_C" where
   "mark c node \<equiv> if c then node \<lparr> mark_C := 3 \<rparr> else node"
 
+definition mark_set :: "node_C ptr set \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
+  "mark_set R s \<equiv> heap_node_C_update (\<lambda> h p. mark (p \<in> R) (h p)) s"
+
 definition mark_precondition :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> state_pred" where
   "mark_precondition P root \<equiv> \<lambda> s. let R = reach (out s) {root} in
-    (\<forall> p \<in> R. ptr_ok p s \<and> s[p]\<rightarrow>mark = 0) \<and> P (heap_node_C_update (\<lambda> h p. mark (p \<in> R) (h p)) s)"
+    (\<forall> p \<in> R. ptr_ok p s \<and> s[p]\<rightarrow>mark = 0) \<and> P (mark_set R s)"
 
 primrec roots :: "node_C ptr \<times> node_C ptr \<Rightarrow> node_C ptr set" where
   "roots (p,q) = { r \<in> {p,q}. r \<noteq> NULL }"
@@ -64,7 +67,7 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
       in
         P t \<and>
         Some u = path_upd s M root q p path \<and>
-        t = heap_node_C_update (\<lambda> h p. mark (p \<in> U) (h p)) u \<and>
+        t = mark_set U u \<and>
         R = reach (out s) (roots (p,q)) \<and>
         M = reach (out t) M \<and>
         (\<forall> p \<in> R. ptr_ok p s) \<and>
@@ -74,10 +77,26 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
 primrec mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
   "mark_measure (r,s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach (out s) (roots r))"
 
+definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
+  "mark_incr p \<equiv> heap_node_C_update (\<lambda>s. s(p := mark_C_update (\<lambda>m. m + 1) (s p)))"
+
+lemma mark_incr_mark [simp]: "(mark_incr p s)[p]\<rightarrow>mark = s[p]\<rightarrow>mark + 1"
+  unfolding mark_incr_def
+  by (metis (no_types, lifting)
+            fun_upd_same graph_mark.get_node_mark_def graph_mark.heap_abs_simps(8)
+            graph_mark.update_node_def lifted_globals.unfold_congs(5) node_C_accupd_same(3))
+
+lemma mark_incr_left [simp]: "(mark_incr p s)[p]\<rightarrow>left = s[p]\<rightarrow>left"
+  unfolding mark_incr_def by (simp add: fun_upd_same graph_mark.get_node_left_def)
+
+lemma mark_incr_right [simp]: "(mark_incr p s)[p]\<rightarrow>right = s[p]\<rightarrow>right"
+  unfolding mark_incr_def by (simp add: fun_upd_same graph_mark.get_node_right_def)
+
 lemma graph_mark'_correct: "\<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
   unfolding
     graph_mark'_def mark_precondition_def
     whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
+    mark_incr_def[symmetric]
   apply (wp; clarsimp)
   subgoal for p q s t u path M
    sorry
