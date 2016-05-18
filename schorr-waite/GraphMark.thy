@@ -47,7 +47,7 @@ primrec tail_upd :: path_upd_t where
     else None)"
 
 primrec path_upd :: path_upd_t where
-  "path_upd s M r q p [] = (if p = NULL \<and> q = r then Some s else None)" |
+  "path_upd s M r q p [] = (if p = NULL \<and> q = r \<and> r \<in> M then Some s else None)" |
   "path_upd s M r q p (p' # ps) =
    (if p \<noteq> p' then None
     else if s[p]\<rightarrow>mark = 0 then
@@ -66,13 +66,14 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
         U = R - M;
         F = U - set path
       in
+        root \<noteq> NULL \<and>
         P t \<and>
         set path \<subseteq> R \<and>
         M \<subseteq> R \<and>
-        R = reach (out s) (roots (p,q)) \<and>
-        M = reach (out t) M \<and>
-        Some u = path_upd s M root q p path \<and>
-        t = mark_set U u \<and>
+        reach (out s) (roots (p,q)) = R \<and>
+        reach (out t) M = M \<and>
+        path_upd s M root q p path = Some u \<and>
+        mark_set U u = t \<and>
         (\<forall> p \<in> R. ptr_ok p s) \<and>
         (\<forall> p \<in> M. s[p]\<rightarrow>mark = 3) \<and>
         (\<forall> p \<in> F. s[p]\<rightarrow>mark = 0))"
@@ -117,6 +118,32 @@ lemma mark_incr_right_upd [simp]:"(mark_incr q s)[p\<rightarrow>right := v] = ma
   by (smt fun_upd_def fun_upd_twist fun_upd_upd graph_mark.update_node_right_def
           lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1))
 
+lemma roots_simp [simp]:
+  "root \<noteq> NULL \<Longrightarrow> {r. (r = NULL \<or> r = root) \<and> r \<noteq> NULL} = {root}"
+  by blast
+
+lemma null_path_empty:
+  assumes
+    "path_upd s M root q NULL path = Some u"
+    "set path \<subseteq> R"
+    "\<forall> p \<in> R. ptr_ok p s"
+  shows
+    "path = []"
+  using assms by (cases path, auto simp: ptr_ok_def)
+
+lemma mark_set_empty [simp]: "mark_set {} u = u"
+  unfolding mark_set_def mark_def by simp
+
+lemma reach_root:
+  assumes
+    "reach f M = M"
+    "root \<in> M"
+  shows
+    "reach f {root} - M = {}"
+  using assms
+  unfolding reach_def
+  sorry
+
 lemma graph_mark'_correct: "\<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
   unfolding
     graph_mark'_def mark_precondition_def
@@ -127,7 +154,10 @@ lemma graph_mark'_correct: "\<lbrace> mark_precondition P root \<rbrace> graph_m
    sorry
   subgoal for q s t u path M
    apply (clarsimp simp: Let_def)
-   sorry
+   apply (frule (2) null_path_empty)
+   apply (clarsimp split: split_if_asm)
+   apply (frule (1) reach_root)
+   by auto
   subgoal for s
    apply (rule exI[where x="mark_set (reach (out s) {root}) s"])
    apply (rule exI[where x=s])
