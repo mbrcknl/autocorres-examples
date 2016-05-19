@@ -7,7 +7,8 @@ autocorres [heap_abs_syntax] "graph_mark.c"
 
 context graph_mark begin
 
-type_synonym mark = "32 word"
+-- "Specification"
+
 type_synonym state_pred = "lifted_globals \<Rightarrow> bool"
 
 definition out :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr set" where
@@ -28,6 +29,11 @@ definition mark_set :: "node_C ptr set \<Rightarrow> lifted_globals \<Rightarrow
 definition mark_precondition :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> state_pred" where
   "mark_precondition P root \<equiv> \<lambda> s. let R = reach s {root} in
     (\<forall> p \<in> R. is_valid_node_C s p \<and> s[p]\<rightarrow>mark = 0) \<and> P (mark_set R s)"
+
+definition mark_specification :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> bool" where
+  "mark_specification P root \<equiv> \<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
+
+-- "Proof"
 
 type_synonym path_upd_t =
   "lifted_globals \<Rightarrow> node_C ptr set
@@ -83,26 +89,47 @@ definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> l
 lemma mark_incr_mark [simp]: "(mark_incr p s)[p]\<rightarrow>mark = s[p]\<rightarrow>mark + 1"
   unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_mark_def)
 
-lemma mark_incr_left [simp]: "(mark_incr q s)[p]\<rightarrow>left = s[p]\<rightarrow>left"
-  unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_left_def)
+end
 
-lemma mark_incr_right [simp]: "(mark_incr q s)[p]\<rightarrow>right = s[p]\<rightarrow>right"
-  unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_right_def)
+locale link_read_stable =
+  fixes
+    f :: "lifted_globals \<Rightarrow> lifted_globals"
+  assumes
+    read_stable_l [simp]: "\<And> p. (f s)[p]\<rightarrow>left = s[p]\<rightarrow>left" and
+    read_stable_r [simp]: "\<And> p. (f s)[p]\<rightarrow>right = s[p]\<rightarrow>right" and
+    read_stable_v [simp]: "\<And> p. is_valid_node_C (f s) p = is_valid_node_C s p"
 
-lemma out_mark_incr [simp]: "out (mark_incr q s) = out s"
+context link_read_stable begin
+
+sublocale graph_mark .
+
+lemma out_link_read_stable [simp]: "out (f s) = out s"
   unfolding out_def[abs_def] by fastforce
 
-lemma mark_set_left [simp]: "(mark_set R s)[p]\<rightarrow>left = s[p]\<rightarrow>left"
-  unfolding mark_set_def mark_def by (simp add: graph_mark.get_node_left_def)
+lemma reach_link_read_stable [simp]: "reach (f s) R = reach s R"
+  proof -
+    { fix p assume "p \<in> reach (f s) R" hence "p \<in> reach s R"
+      by (induction rule: reach.induct) (auto intro: reach.intros) }
+    moreover
+    { fix p assume "p \<in> reach s R" hence "p \<in> reach (f s) R"
+      by (induction rule: reach.induct) (auto intro: reach.intros) }
+    ultimately
+    show ?thesis by blast
+  qed
 
-lemma mark_set_right [simp]: "(mark_set R s)[p]\<rightarrow>right = s[p]\<rightarrow>right"
-  unfolding mark_set_def mark_def by (simp add: graph_mark.get_node_right_def)
+end
 
-lemma out_mark_set [simp]: "out (mark_set R s) = out s"
-  unfolding out_def[abs_def] by fastforce
+context graph_mark begin
 
-lemma mark_incr_node_valid [simp]: "is_valid_node_C (mark_incr q s) p = is_valid_node_C s p"
-  unfolding mark_incr_def by simp
+sublocale mark_incr_link_read_stable?: link_read_stable "mark_incr q"
+  apply unfold_locales
+  by (auto simp: mark_incr_def fun_upd_def
+                 graph_mark.get_node_left_def graph_mark.get_node_right_def)
+
+sublocale mark_set_link_read_stable?: link_read_stable "mark_set R"
+  apply unfold_locales
+  by (auto simp: mark_set_def mark_def fun_upd_def
+                 graph_mark.get_node_left_def graph_mark.get_node_right_def)
 
 lemma mark_incr_left_upd [simp]:"(mark_incr q s)[p\<rightarrow>left := v] = mark_incr q s[p\<rightarrow>left := v]"
   unfolding mark_incr_def
@@ -122,15 +149,15 @@ lemma null_path_empty [dest]:
     "path = []"
   using assms by (cases path; auto elim: reach.cases)
 
-lemma reachable_subset: assumes "R \<subseteq> S" shows "reach s R \<subseteq> reach s S"
+lemma reach_subset: assumes "R \<subseteq> S" shows "reach s R \<subseteq> reach s S"
   proof -
     { fix p have "p \<in> reach s R \<Longrightarrow> R \<subseteq> S \<Longrightarrow> p \<in> reach s S"
       by (induction rule: reach.induct) (auto intro: reach.intros) }
     thus ?thesis using assms by auto
   qed
 
-lemma reachable_with_null: "reach s R = S \<Longrightarrow> R' = insert NULL R \<Longrightarrow> reach s R' = S"
-  sorry
+lemma reach_incl: "NULL \<notin> R \<Longrightarrow> R \<subseteq> reach s R"
+  by (auto intro: reach.intros)
 
 lemma reachable_null [simp]: "reach s {NULL} = {}"
   proof -
@@ -138,15 +165,26 @@ lemma reachable_null [simp]: "reach s {NULL} = {}"
     thus ?thesis by auto
   qed
 
+lemma reach_incl_null: assumes "R' = insert NULL R" shows "reach s R' = reach s R"
+  proof -
+    { fix p assume "p \<in> reach s R'" "R' = insert NULL R" hence "p \<in> reach s R"
+      by (induction rule: reach.induct) (auto intro: reach.intros) }
+    moreover
+    { fix p assume "p \<in> reach s R" "R' = insert NULL R" hence "p \<in> reach s R'"
+      by (induction rule: reach.induct) (auto intro: reach.intros) }
+    ultimately
+    show ?thesis using assms by blast
+  qed
+
 lemma reachable_empty [simp]: "reach s {} = {}"
-  by (metis empty_subsetI graph_mark.reachable_subset reachable_null subset_antisym)
+  by (metis empty_subsetI reach_subset reachable_null subset_antisym)
 
 lemma mark_set_empty [simp]: "mark_set {} u = u"
   unfolding mark_set_def mark_def by simp
 
-lemma graph_mark'_correct: "\<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
+lemma graph_mark'_correct: "mark_specification P root"
   unfolding
-    graph_mark'_def mark_precondition_def
+    mark_specification_def mark_precondition_def graph_mark'_def
     whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
     mark_incr_def[symmetric]
   apply (wp; clarsimp)
@@ -157,15 +195,16 @@ lemma graph_mark'_correct: "\<lbrace> mark_precondition P root \<rbrace> graph_m
    apply (frule (1) null_path_empty)
    apply (clarsimp split: split_if_asm)
    apply (cases "root = NULL"; clarsimp)
-   apply (frule reachable_subset[of "{root}" M t, simplified])
+   apply (frule reach_subset[of "{root}" M t, simplified])
    by auto
   subgoal for s
    apply (rule exI[where x="mark_set (reach s {root}) s"])
    apply (rule exI[where x=s])
    apply (rule exI[where x="if root = NULL then [] else [root]"])
    apply (rule exI[where x="{}"])
-   apply (cases "root = NULL"; clarsimp simp: Let_def)
-   sorry
+   apply (cases "root = NULL"; simp add: Let_def reach_incl[of "{root}", simplified])
+   apply (rule reach_incl_null)
+   by auto
   done
 
 end
