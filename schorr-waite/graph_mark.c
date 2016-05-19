@@ -8,7 +8,7 @@ void graph_mark(struct node * p) {
   struct node * q = 0;
   while (p) {
     p->mark++;
-    if (p->mark == 3 || p->left->mark == 0) {
+    if (p->mark == 3 || p->left != 0 && p->left->mark == 0) {
       struct node * t = p;
       p = t->left;
       t->left = t->right;
