@@ -17,8 +17,8 @@ definition out :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C 
 inductive_set reach :: "lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> node_C ptr set"
   for s :: lifted_globals and R :: "node_C ptr set"
   where
-    reach_root: "p \<noteq> NULL \<Longrightarrow> p \<in> R \<Longrightarrow> p \<in> reach s R"
-  | reach_step: "q \<noteq> NULL \<Longrightarrow> q \<in> out s p \<Longrightarrow> p \<in> reach s R \<Longrightarrow> q \<in> reach s R"
+    reach_root: "p \<in> R \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> p \<in> reach s R"
+  | reach_step: "p \<in> reach s R \<Longrightarrow> q \<in> out s p \<Longrightarrow> q \<noteq> NULL \<Longrightarrow> q \<in> reach s R"
 
 definition mark :: "bool \<Rightarrow> node_C \<Rightarrow> node_C" where
   "mark c node \<equiv> if c then node \<lparr> mark_C := 3 \<rparr> else node"
@@ -72,13 +72,13 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
         P t \<and>
         set path \<subseteq> R \<and>
         M \<subseteq> R \<and>
-        reach s {p,q} = R \<and>
+        R = reach s {p,q} \<and>
         reach t M = M \<and>
         path_upd s M root q p path = Some u \<and>
         mark_set U u = t \<and>
         (\<forall> p \<in> R. is_valid_node_C s p) \<and>
-        (\<forall> p \<in> M. s[p]\<rightarrow>mark = 3) \<and>
-        (\<forall> p \<in> F. s[p]\<rightarrow>mark = 0))"
+        (\<forall> p \<in> F. s[p]\<rightarrow>mark = 0) \<and>
+        (\<forall> p \<in> M. s[p]\<rightarrow>mark = 3))"
 
 fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
   "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach s {p,q})"
@@ -201,8 +201,8 @@ lemma reach_rotate:
         using assms out_def reach.intros by blast
       next
         case reach_step thus ?case
-        by (metis fun_upd_other fun_upd_same graph_mark.heap_abs_simps(12,14,22,24) out_def
-                  reach.intros insertCI insertE)
+        by (metis fun_upd_other fun_upd_same graph_mark.heap_abs_simps(12,14,22,24)
+                  out_def reach.intros insertCI insertE)
       qed
     }
     moreover
@@ -220,20 +220,19 @@ lemma reach_rotate:
           case False
           have Q: "r' = q" "q \<noteq> NULL" using False reach_root by auto
           show ?thesis
-          by (rule reach_step[where p=p])
+          by (rule reach_step[of p])
              (auto simp: Q P out_def fun_upd_same intro: reach.intros)
         qed
       next
-        case (reach_step r'' r')
-        show ?case
-        using reach_step P
-        sorry
+        case reach_step show ?case using reach_step P
+        by (metis fun_upd_other fun_upd_same graph_mark.heap_abs_simps(12,14,22,24)
+                  out_def empty_iff insertE insert_subset order_refl reach.intros)
       qed
     }
     ultimately show ?thesis using R by blast
   qed
 
-lemma read_rotate_left [simp]:
+lemma reach_rotate_left [simp]:
   "p \<noteq> NULL \<Longrightarrow> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left,p} = reach s {p,q}"
   "p \<noteq> NULL \<Longrightarrow> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p,s[p]\<rightarrow>left} = reach s {p,q}"
   by (rule reach_rotate; auto)+
@@ -276,7 +275,7 @@ lemma graph_mark'_correct: "mark_specification P root"
    apply (rule exI[where x="if root = NULL then [] else [root]"])
    apply (rule exI[where x="{}"])
    apply (cases "root = NULL"; simp add: Let_def reach_incl[of "{root}", simplified])
-   apply (rule reach_incl_null)
+   apply (subst reach_incl_null[of "{root,NULL}"])
    by auto
   done
 
