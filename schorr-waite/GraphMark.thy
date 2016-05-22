@@ -185,6 +185,72 @@ lemma mark_set_empty [simp]: "mark_set {} u = u"
 lemma mark_incr_p_mark_q [simp]: "q \<noteq> p \<Longrightarrow> (mark_incr p s)[q]\<rightarrow>mark = s[q]\<rightarrow>mark"
   by (simp add: fun_upd_def graph_mark.get_node_mark_def mark_incr_def)
 
+lemma reach_rotate:
+  assumes
+    P: "p \<noteq> NULL" and
+    R: "R = {s[p]\<rightarrow>left, p}"
+  shows
+    "reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] R = reach s {p,q}"
+  proof -
+    {
+      fix r
+      assume "r \<in> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left, p}"
+      hence "r \<in> reach s {p,q}"
+      proof (induction rule: reach.induct)
+        case reach_root thus ?case
+        using assms out_def reach.intros by blast
+      next
+        case reach_step thus ?case
+        by (metis fun_upd_other fun_upd_same graph_mark.heap_abs_simps(12,14,22,24) out_def
+                  reach.intros insertCI insertE)
+      qed
+    }
+    moreover
+    {
+      fix r
+      assume "r \<in> reach s {p,q}"
+      hence "r \<in> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left, p}"
+      proof (induction rule: reach.induct)
+        case (reach_root r')
+        show ?case
+        proof (cases "r' = p")
+          case True show ?thesis
+          using reach_root True reach.reach_root by auto
+        next
+          case False
+          have Q: "r' = q" "q \<noteq> NULL" using False reach_root by auto
+          show ?thesis
+          by (rule reach_step[where p=p])
+             (auto simp: Q P out_def fun_upd_same intro: reach.intros)
+        qed
+      next
+        case (reach_step r'' r')
+        show ?case
+        using reach_step P
+        sorry
+      qed
+    }
+    ultimately show ?thesis using R by blast
+  qed
+
+lemma read_rotate_left [simp]:
+  "p \<noteq> NULL \<Longrightarrow> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left,p} = reach s {p,q}"
+  "p \<noteq> NULL \<Longrightarrow> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p,s[p]\<rightarrow>left} = reach s {p,q}"
+  by (rule reach_rotate; auto)+
+
+lemma reach_rotate_id [simp]:
+  assumes "s[p]\<rightarrow>left = p" "p \<noteq> NULL"
+  shows "reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p} = reach s {p,q}"
+  by (rule reach_rotate) (auto simp: assms)
+
+lemma reach_rotate_null [simp]:
+  assumes
+    "p \<noteq> NULL" "s[p]\<rightarrow>left = NULL"
+  shows
+    "reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p,NULL} = reach s {p,q}"
+    "reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {NULL,p} = reach s {p,q}"
+  by (rule reach_rotate; auto simp: assms)+
+
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding
     mark_specification_def mark_precondition_def graph_mark'_def
@@ -194,9 +260,7 @@ lemma graph_mark'_correct: "mark_specification P root"
   subgoal for p q s t u path M
    apply (cases path; clarsimp simp: Let_def)
    subgoal for p' ps
-    apply (cases "p' = p";
-           cases "s[p]\<rightarrow>left = p";
-           clarsimp split: split_if_asm)
+    apply (cases "p' = p"; cases "s[p]\<rightarrow>left = p"; clarsimp)
     sorry
    done
   subgoal for q s t u path M
