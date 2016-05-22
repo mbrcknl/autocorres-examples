@@ -182,6 +182,9 @@ lemma reachable_empty [simp]: "reach s {} = {}"
 lemma mark_set_empty [simp]: "mark_set {} u = u"
   unfolding mark_set_def mark_def by simp
 
+lemma mark_incr_p_mark_q [simp]: "q \<noteq> p \<Longrightarrow> (mark_incr p s)[q]\<rightarrow>mark = s[q]\<rightarrow>mark"
+  by (simp add: fun_upd_def graph_mark.get_node_mark_def mark_incr_def)
+
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding
     mark_specification_def mark_precondition_def graph_mark'_def
@@ -189,7 +192,13 @@ lemma graph_mark'_correct: "mark_specification P root"
     mark_incr_def[symmetric]
   apply (wp; clarsimp)
   subgoal for p q s t u path M
-   sorry
+   apply (cases path; clarsimp simp: Let_def)
+   subgoal for p' ps
+    apply (cases "p' = p";
+           cases "s[p]\<rightarrow>left = p";
+           clarsimp split: split_if_asm)
+    sorry
+   done
   subgoal for q s t u path M
    apply (clarsimp simp: Let_def)
    apply (frule (1) null_path_empty)
