@@ -86,7 +86,7 @@ fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<
 definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "mark_incr p \<equiv> heap_node_C_update (\<lambda> h. h(p := mark_C_update (\<lambda> m. m + 1) (h p)))"
 
-lemma mark_incr_mark [simp]: "(mark_incr p s)[p]\<rightarrow>mark = s[p]\<rightarrow>mark + 1"
+lemma mark_incr_mark [simp]: "(mark_incr q s)[p]\<rightarrow>mark = s[p]\<rightarrow>mark + (if p = q then 1 else 0)"
   unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_mark_def)
 
 end
@@ -250,6 +250,14 @@ lemma reach_rotate_null [simp]:
     "reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {NULL,p} = reach s {p,q}"
   by (rule reach_rotate; auto simp: assms)+
 
+lemma setsum_extract_reach:
+  "p \<noteq> NULL \<Longrightarrow> (\<Sum> p \<in> reach s {p,q}. f p) = f p + (\<Sum> p \<in> reach s {p,q} - {p}. f p)"
+  by (auto simp: reach_root setsum.remove)
+
+lemma reach_left:
+  "s[p]\<rightarrow>left \<noteq> NULL \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> s[p]\<rightarrow>left \<in> reach s {p,q}"
+  using out_def reach_root reach_step by blast
+
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding
     mark_specification_def mark_precondition_def graph_mark'_def
@@ -259,7 +267,15 @@ lemma graph_mark'_correct: "mark_specification P root"
   subgoal for p q s t u path M
    apply (cases path; clarsimp simp: Let_def)
    subgoal for p' ps
-    apply (cases "p' = p"; cases "s[p]\<rightarrow>left = p"; clarsimp)
+    apply (cases "p' = p"; clarsimp)
+    apply (subst setsum_extract_reach[of p]; clarsimp)+
+    apply (cases "s[p]\<rightarrow>left = p";
+           cases "s[p]\<rightarrow>left = NULL";
+           (frule (1) reach_left[where q = q])?;
+           cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
+           clarsimp split: split_if_asm;
+           rule exI[where x=t];
+           clarsimp)
     sorry
    done
   subgoal for q s t u path M
