@@ -9,6 +9,7 @@ context graph_mark begin
 
 -- "Specification"
 
+type_synonym mark = "32 word"
 type_synonym state_pred = "lifted_globals \<Rightarrow> bool"
 
 definition out :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr set" where
@@ -20,68 +21,20 @@ inductive_set reach :: "lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow
     reach_root: "p \<in> R \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> p \<in> reach s R"
   | reach_step: "p \<in> reach s R \<Longrightarrow> q \<in> out s p \<Longrightarrow> q \<noteq> NULL \<Longrightarrow> q \<in> reach s R"
 
-definition mark :: "bool \<Rightarrow> node_C \<Rightarrow> node_C" where
-  "mark c node \<equiv> if c then node \<lparr> mark_C := 3 \<rparr> else node"
+definition mark :: "mark \<Rightarrow> bool \<Rightarrow> node_C \<Rightarrow> node_C" where
+  "mark m c node \<equiv> if c then node \<lparr> mark_C := m \<rparr> else node"
 
-definition mark_set :: "node_C ptr set \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
-  "mark_set R s \<equiv> heap_node_C_update (\<lambda> h p. mark (p \<in> R) (h p)) s"
+definition mark_set :: "mark \<Rightarrow> node_C ptr set \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
+  "mark_set m R s \<equiv> heap_node_C_update (\<lambda> h p. mark m (p \<in> R) (h p)) s"
 
 definition mark_precondition :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> state_pred" where
   "mark_precondition P root \<equiv> \<lambda> s. let R = reach s {root} in
-    (\<forall> p \<in> R. is_valid_node_C s p \<and> s[p]\<rightarrow>mark = 0) \<and> P (mark_set R s)"
+    (\<forall> p \<in> R. is_valid_node_C s p \<and> s[p]\<rightarrow>mark = 0) \<and> P (mark_set 3 R s)"
 
 definition mark_specification :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> bool" where
   "mark_specification P root \<equiv> \<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
 
 -- "Proof"
-
-type_synonym path_upd_t =
-  "lifted_globals \<Rightarrow> node_C ptr set
-    \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr list \<Rightarrow> lifted_globals option"
-
-primrec tail_upd :: path_upd_t where
-  "tail_upd s M r q p [] = (if p = NULL \<and> q = r then Some s else None)" |
-  "tail_upd s M r q p (p' # ps) =
-   (if p \<noteq> p' then None
-    else if s[p]\<rightarrow>mark = 1 then
-      tail_upd s[p\<rightarrow>left := q][p\<rightarrow>right := s[p]\<rightarrow>left] M r p s[p]\<rightarrow>right ps
-    else if s[p]\<rightarrow>mark = 2 \<and> s[p]\<rightarrow>right \<in> M then
-      tail_upd s[p\<rightarrow>right := q][p\<rightarrow>left := s[p]\<rightarrow>right] M r p s[p]\<rightarrow>left ps
-    else None)"
-
-primrec path_upd :: path_upd_t where
-  "path_upd s M r q p [] = (if p = NULL \<and> q = r \<and> (r = NULL \<or> r \<in> M) then Some s else None)" |
-  "path_upd s M r q p (p' # ps) =
-   (if p \<noteq> p' then None
-    else if s[p]\<rightarrow>mark = 0 then
-      tail_upd s M r p q ps
-    else if s[p]\<rightarrow>mark = 1 \<and> q \<in> M then
-      tail_upd s[p\<rightarrow>left := q][p\<rightarrow>right := s[p]\<rightarrow>left] M r p s[p]\<rightarrow>right ps
-    else if s[p]\<rightarrow>mark = 2 \<and> s[p]\<rightarrow>right \<in> M \<and> q \<in> M then
-      tail_upd s[p\<rightarrow>right := q][p\<rightarrow>left := s[p]\<rightarrow>right] M r p s[p]\<rightarrow>left ps
-    else None)"
-
-primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> state_pred" where
-  "mark_invariant P root (p,q) s =
-    (\<exists> t u path M.
-      let
-        R = reach t {root};
-        U = R - M;
-        F = U - set path
-      in
-        P t \<and>
-        set path \<subseteq> R \<and>
-        M \<subseteq> R \<and>
-        R = reach s {p,q} \<and>
-        reach t M = M \<and>
-        path_upd s M root q p path = Some u \<and>
-        mark_set U u = t \<and>
-        (\<forall> p \<in> R. is_valid_node_C s p) \<and>
-        (\<forall> p \<in> F. s[p]\<rightarrow>mark = 0) \<and>
-        (\<forall> p \<in> M. s[p]\<rightarrow>mark = 3))"
-
-fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
-  "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach s {p,q})"
 
 definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "mark_incr p \<equiv> heap_node_C_update (\<lambda> h. h(p := mark_C_update (\<lambda> m. m + 1) (h p)))"
@@ -126,7 +79,7 @@ sublocale mark_incr_link_read_stable?: link_read_stable "mark_incr q"
   by (auto simp: mark_incr_def fun_upd_def
                  graph_mark.get_node_left_def graph_mark.get_node_right_def)
 
-sublocale mark_set_link_read_stable?: link_read_stable "mark_set R"
+sublocale mark_set_link_read_stable?: link_read_stable "mark_set m R"
   apply unfold_locales
   by (auto simp: mark_set_def mark_def fun_upd_def
                  graph_mark.get_node_left_def graph_mark.get_node_right_def)
@@ -140,14 +93,6 @@ lemma mark_incr_right_upd [simp]:"(mark_incr q s)[p\<rightarrow>right := v] = ma
   unfolding mark_incr_def
   by (smt fun_upd_def fun_upd_twist fun_upd_upd graph_mark.update_node_right_def
           lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1))
-
-lemma null_path_empty [dest]:
-  assumes
-    "path_upd s M root q NULL path = Some u"
-    "set path \<subseteq> reach t roots"
-  shows
-    "path = []"
-  using assms by (cases path; auto elim: reach.cases)
 
 lemma reach_subset: assumes "R \<subseteq> S" shows "reach s R \<subseteq> reach s S"
   proof -
@@ -179,7 +124,7 @@ lemma reach_incl_null: assumes "R' = insert NULL R" shows "reach s R' = reach s 
 lemma reachable_empty [simp]: "reach s {} = {}"
   by (metis empty_subsetI reach_subset reachable_null subset_antisym)
 
-lemma mark_set_empty [simp]: "mark_set {} u = u"
+lemma mark_set_empty [simp]: "mark_set m {} u = u"
   unfolding mark_set_def mark_def by simp
 
 lemma mark_incr_p_mark_q [simp]: "q \<noteq> p \<Longrightarrow> (mark_incr p s)[q]\<rightarrow>mark = s[q]\<rightarrow>mark"
@@ -258,13 +203,69 @@ lemma reach_left:
   "s[p]\<rightarrow>left \<noteq> NULL \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> s[p]\<rightarrow>left \<in> reach s {p,q}"
   using out_def reach_root reach_step by blast
 
+type_synonym path_upd_t =
+  "lifted_globals \<Rightarrow> node_C ptr set
+    \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr list \<Rightarrow> lifted_globals option"
+
+primrec tail_upd :: path_upd_t where
+  "tail_upd s M r q p [] = (if p = NULL \<and> q = r then Some s else None)" |
+  "tail_upd s M r q p (p' # ps) =
+   (if p \<noteq> p' then None
+    else if s[p]\<rightarrow>mark = 1 then
+      tail_upd s[p\<rightarrow>left := q][p\<rightarrow>right := s[p]\<rightarrow>left][p\<rightarrow>mark := 0] M r p s[p]\<rightarrow>right ps
+    else if s[p]\<rightarrow>mark = 2 \<and> s[p]\<rightarrow>right \<in> M then
+      tail_upd s[p\<rightarrow>right := q][p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>mark := 0] M r p s[p]\<rightarrow>left ps
+    else None)"
+
+primrec path_upd :: path_upd_t where
+  "path_upd s M r q p [] = (if p = NULL \<and> q = r \<and> (r = NULL \<or> r \<in> M) then Some s else None)" |
+  "path_upd s M r q p (p' # ps) =
+   (if p \<noteq> p' then None
+    else if s[p]\<rightarrow>mark = 0 then
+      tail_upd s M r p q ps
+    else if s[p]\<rightarrow>mark = 1 \<and> q \<in> M then
+      tail_upd s[p\<rightarrow>left := q][p\<rightarrow>right := s[p]\<rightarrow>left][p\<rightarrow>mark := 0] M r p s[p]\<rightarrow>right ps
+    else if s[p]\<rightarrow>mark = 2 \<and> s[p]\<rightarrow>right \<in> M \<and> q \<in> M then
+      tail_upd s[p\<rightarrow>right := q][p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>mark := 0] M r p s[p]\<rightarrow>left ps
+    else None)"
+
+primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> state_pred" where
+  "mark_invariant P root (p,q) s =
+    (\<exists> path M m.
+      let
+        R = reach m {root};
+        U = R - M;
+        Z = U - set path;
+        t = mark_set 3 U m
+      in
+        P t \<and>
+        set path \<subseteq> R \<and>
+        M \<subseteq> R \<and>
+        reach t M = M \<and>
+        R = reach s {p,q} \<and>
+        path_upd s M root q p path = Some m \<and>
+        (\<forall> p \<in> R. is_valid_node_C s p) \<and>
+        (\<forall> p \<in> Z. s[p]\<rightarrow>mark = 0) \<and>
+        (\<forall> p \<in> M. s[p]\<rightarrow>mark = 3))"
+
+fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
+  "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach s {p,q})"
+
+lemma null_path_empty [dest]:
+  assumes
+    "path_upd s M root q NULL path = Some u"
+    "set path \<subseteq> reach t roots"
+  shows
+    "path = []"
+  using assms by (cases path; auto elim: reach.cases)
+
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding
     mark_specification_def mark_precondition_def graph_mark'_def
     whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
     mark_incr_def[symmetric]
   apply (wp; clarsimp)
-  subgoal for p q s t u path M
+  subgoal for p q s path M m
    apply (cases path; clarsimp simp: Let_def)
    subgoal for p' ps
     apply (cases "p' = p"; clarsimp)
@@ -273,23 +274,20 @@ lemma graph_mark'_correct: "mark_specification P root"
            cases "s[p]\<rightarrow>left = NULL";
            (frule (1) reach_left[where q = q])?;
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
-           clarsimp split: split_if_asm;
-           rule exI[where x=t];
-           clarsimp)
+           clarsimp split: split_if_asm)
     sorry
    done
-  subgoal for q s t u path M
+  subgoal for q s path M m
    apply (clarsimp simp: Let_def)
    apply (frule (1) null_path_empty)
    apply (clarsimp split: split_if_asm)
    apply (cases "root = NULL"; clarsimp)
-   apply (frule reach_subset[of "{root}" M t, simplified])
+   apply (frule reach_subset[of "{root}" M m, simplified])
    by auto
   subgoal for s
-   apply (rule exI[where x="mark_set (reach s {root}) s"])
-   apply (rule exI[where x=s])
    apply (rule exI[where x="if root = NULL then [] else [root]"])
    apply (rule exI[where x="{}"])
+   apply (rule exI[where x=s])
    apply (cases "root = NULL"; simp add: Let_def reach_incl[of "{root}", simplified])
    apply (subst reach_incl_null[of "{root,NULL}"])
    by auto
