@@ -301,19 +301,60 @@ lemma graph_mark'_correct: "mark_specification P root"
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
            (frule (1) reach_left[where q = q])?;
            elim disjE; clarsimp)
-    apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-           clarsimp simp: fun_upd_same)
-    apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-           clarsimp simp: fun_upd_same)
-    apply (cases ps; clarsimp)
-    apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-           clarsimp simp: fun_upd_same)
-    apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-           clarsimp simp: fun_upd_same)
-(*
-    apply (rule exI[where x="s[p]\<rightarrow>left # path"]; rule exI[where x=F]; rule exI[where x=m])
-*)
-    sorry
+    subgoal
+     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+         clarsimp simp: fun_upd_same)
+    subgoal
+     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+         clarsimp simp: fun_upd_same)
+    subgoal
+     by (cases ps; clarsimp)
+    subgoal
+     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+         clarsimp simp: fun_upd_same)
+    subgoal
+     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+         clarsimp simp: fun_upd_same)
+    subgoal 
+     apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
+            rule exI[where x="mark_set 3 {p} m"];
+            clarsimp simp: fun_upd_same)
+     sorry
+    subgoal
+     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+         clarsimp simp: fun_upd_same)
+    subgoal
+     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+         clarsimp simp: fun_upd_same)
+    subgoal
+     apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
+            rule exI[where x="mark_set 3 {p} m"];
+            clarsimp simp: fun_upd_same)
+     sorry
+    subgoal
+     apply (rule exI[where x="s[p]\<rightarrow>left # path"]; rule exI[where x=F]; rule exI[where x=m];
+            clarsimp simp: fun_upd_same)
+     sorry
+    subgoal
+     apply (rule exI[where x="s[p]\<rightarrow>left # path"]; rule exI[where x=F]; rule exI[where x=m];
+            clarsimp simp: fun_upd_same)
+     sorry
+    subgoal
+     sorry
+    subgoal
+     apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+            clarsimp simp: fun_upd_same)
+     sorry
+    subgoal
+     apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+            clarsimp simp: fun_upd_same)
+     sorry
+    subgoal
+     apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
+            rule exI[where x="mark_set 3 {p} m"];
+            clarsimp simp: fun_upd_same)
+     sorry
+    done
    done
   subgoal for q s path F m
    apply (clarsimp simp: Let_def)
