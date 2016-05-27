@@ -241,22 +241,23 @@ primrec path_ok :: path_ok_t where
 
 primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> state_pred" where
   "mark_invariant P root (p,q) s =
-    (\<exists> path M m.
+    (\<exists> path F m.
       let
         R = reach m {root};
-        U = R - M;
-        Z = U - set path;
+        M = F \<union> set path;
+        U = R - F;
+        Z = R - M;
         t = mark_set 3 U m
       in
         P t \<and>
         set path \<subseteq> R \<and>
-        M \<subseteq> R \<and>
-        reach t M = M \<and>
+        F \<subseteq> R \<and>
+        reach t F = F \<and>
         R = reach s {p,q} \<and>
         path_ok s m M root q p path \<and>
         (\<forall> p \<in> R. is_valid_node_C s p) \<and>
         (\<forall> p \<in> Z. s[p]\<rightarrow>mark = 0) \<and>
-        (\<forall> p \<in> M. s[p]\<rightarrow>mark = 3))"
+        (\<forall> p \<in> F. s[p]\<rightarrow>mark = 3))"
 
 fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
   "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach s {p,q})"
@@ -275,7 +276,7 @@ lemma graph_mark'_correct: "mark_specification P root"
     whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
     mark_incr_def[symmetric]
   apply (wp; clarsimp)
-  subgoal for p q s path M m
+  subgoal for p q s path F m
    apply (cases path; clarsimp simp: Let_def)
    subgoal for ps
     apply (subst setsum_extract_reach[of p]; clarsimp)+
@@ -284,23 +285,20 @@ lemma graph_mark'_correct: "mark_specification P root"
            (frule (1) reach_left[where q = q])?;
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
            elim disjE; clarsimp)
-    apply (rule exI[where x=path])
-    apply (rule exI[where x=M])
-    apply (rule exI[where x=m])
-    apply clarsimp
+    apply (rule exI[where x=path], rule exI[where x=F], rule exI[where x=m])
     sorry
    done
-  subgoal for q s path M m
+  subgoal for q s path F m
    apply (clarsimp simp: Let_def)
    apply (frule (1) null_path_empty)
    apply (clarsimp)
    apply (cases "root = NULL"; clarsimp)
-   apply (frule reach_subset[of "{root}" M m, simplified])
+   apply (frule reach_subset[of "{root}" F m, simplified])
    by auto
   subgoal for s
-   apply (rule exI[where x="if root = NULL then [] else [root]"])
-   apply (rule exI[where x="{}"])
-   apply (rule exI[where x=s])
+   apply (rule exI[where x="if root = NULL then [] else [root]"],
+          rule exI[where x="{}"],
+          rule exI[where x=s])
    apply (cases "root = NULL"; simp add: Let_def reach_incl[of "{root}", simplified])
    apply (subst reach_incl_null[of "{root,NULL}"])
    by auto
