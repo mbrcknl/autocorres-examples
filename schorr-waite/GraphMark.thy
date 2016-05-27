@@ -207,7 +207,7 @@ abbreviation copy_node :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow>
   "copy_node p m \<equiv> heap_node_C_update (\<lambda> h. h (p := heap_node_C m p))"
 
 abbreviation cmp_links :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> bool" where
-  "cmp_links p m l r \<equiv> m[p]\<rightarrow>left = l \<and> m[p]\<rightarrow>right = r"
+  "cmp_links p m l r \<equiv> l = m[p]\<rightarrow>left \<and> r = m[p]\<rightarrow>right"
 
 type_synonym path_ok_t =
   "lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set
@@ -270,6 +270,21 @@ lemma null_path_empty:
     "path = []"
   using assms by (cases path; auto elim: reach.cases)
 
+lemma mark_incr_replace [simp]:
+  "heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) (mark_incr p s) =
+   heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s"
+  by (simp add: mark_incr_def)
+
+lemma set_left_replace [simp]:
+  "heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s[p\<rightarrow>left := q] =
+   heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s"
+  by (simp add: graph_mark.update_node_left_def)
+
+lemma set_right_replace [simp]:
+  "heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s[p\<rightarrow>right := q] =
+   heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s"
+  by (simp add: graph_mark.update_node_right_def)
+
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding
     mark_specification_def mark_precondition_def graph_mark'_def
@@ -282,10 +297,11 @@ lemma graph_mark'_correct: "mark_specification P root"
     apply (subst setsum_extract_reach[of p]; clarsimp)+
     apply (cases "s[p]\<rightarrow>left = p";
            cases "s[p]\<rightarrow>left = NULL";
-           (frule (1) reach_left[where q = q])?;
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
+           (frule (1) reach_left[where q = q])?;
            elim disjE; clarsimp)
-    apply (rule exI[where x=path], rule exI[where x=F], rule exI[where x=m])
+    apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+           clarsimp simp: fun_upd_same)
     sorry
    done
   subgoal for q s path F m
@@ -296,10 +312,10 @@ lemma graph_mark'_correct: "mark_specification P root"
    apply (frule reach_subset[of "{root}" F m, simplified])
    by auto
   subgoal for s
-   apply (rule exI[where x="if root = NULL then [] else [root]"],
-          rule exI[where x="{}"],
-          rule exI[where x=s])
-   apply (cases "root = NULL"; simp add: Let_def reach_incl[of "{root}", simplified])
+   apply (rule exI[where x="if root = NULL then [] else [root]"];
+          rule exI[where x="{}"]; rule exI[where x=s])
+   apply (cases "root = NULL";
+          simp add: Let_def reach_incl[of "{root}", simplified])
    apply (subst reach_incl_null[of "{root,NULL}"])
    by auto
   done
