@@ -220,7 +220,7 @@ primrec tail_ok :: path_ok_t where
         cmp_links p m q s[p]\<rightarrow>left \<and>
         tail_ok (copy_node p m s) m M r p s[p]\<rightarrow>right ps \<or>
       s[p]\<rightarrow>mark = 2 \<and>
-        m[p]\<rightarrow>left \<in> M \<and>
+        m[p]\<rightarrow>left \<in> insert NULL M \<and>
         cmp_links p m s[p]\<rightarrow>right q \<and>
         tail_ok (copy_node p m s) m M r p s[p]\<rightarrow>left ps))"
 
@@ -231,11 +231,11 @@ primrec path_ok :: path_ok_t where
         cmp_links p m s[p]\<rightarrow>left s[p]\<rightarrow>right \<and>
         tail_ok (copy_node p m s) m M r p q ps \<or>
       s[p]\<rightarrow>mark = 1 \<and>
-        m[p]\<rightarrow>left \<in> M \<and>
+        m[p]\<rightarrow>left \<in> insert NULL M \<and>
         cmp_links p m q s[p]\<rightarrow>left \<and>
         tail_ok (copy_node p m s) m M r p s[p]\<rightarrow>right ps \<or>
       s[p]\<rightarrow>mark = 2 \<and>
-        {m[p]\<rightarrow>left, m[p]\<rightarrow>right} \<subseteq> M \<and>
+        {m[p]\<rightarrow>left, m[p]\<rightarrow>right} \<subseteq> insert NULL M \<and>
         cmp_links p m s[p]\<rightarrow>right q \<and>
         tail_ok (copy_node p m s) m M r p s[p]\<rightarrow>left ps))"
 
@@ -251,6 +251,7 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
       in
         P t \<and>
         set path \<subseteq> R \<and>
+        distinct path \<and>
         F \<subseteq> R \<and>
         reach t F = F \<and>
         R = reach s {p,q} \<and>
@@ -302,6 +303,16 @@ lemma graph_mark'_correct: "mark_specification P root"
            elim disjE; clarsimp)
     apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
            clarsimp simp: fun_upd_same)
+    apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+           clarsimp simp: fun_upd_same)
+    apply (cases ps; clarsimp)
+    apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+           clarsimp simp: fun_upd_same)
+    apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+           clarsimp simp: fun_upd_same)
+(*
+    apply (rule exI[where x="s[p]\<rightarrow>left # path"]; rule exI[where x=F]; rule exI[where x=m])
+*)
     sorry
    done
   subgoal for q s path F m
