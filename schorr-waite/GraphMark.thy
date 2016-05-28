@@ -21,11 +21,8 @@ inductive_set reach :: "lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow
     reach_root: "p \<in> R \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> p \<in> reach s R"
   | reach_step: "p \<in> reach s R \<Longrightarrow> q \<in> out s p \<Longrightarrow> q \<noteq> NULL \<Longrightarrow> q \<in> reach s R"
 
-definition mark :: "mark \<Rightarrow> bool \<Rightarrow> node_C \<Rightarrow> node_C" where
-  "mark m c node \<equiv> if c then node \<lparr> mark_C := m \<rparr> else node"
-
 definition mark_set :: "mark \<Rightarrow> node_C ptr set \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
-  "mark_set m R s \<equiv> heap_node_C_update (\<lambda> h p. mark m (p \<in> R) (h p)) s"
+  "mark_set m R \<equiv> heap_node_C_update (\<lambda> h p. mark_C_update (If (p \<in> R) m) (h p))"
 
 definition mark_precondition :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> state_pred" where
   "mark_precondition P root \<equiv> \<lambda> s. let R = reach s {root} in
@@ -81,7 +78,7 @@ sublocale mark_incr_link_read_stable?: link_read_stable "mark_incr q"
 
 sublocale mark_set_link_read_stable?: link_read_stable "mark_set m R"
   apply unfold_locales
-  by (auto simp: mark_set_def mark_def fun_upd_def
+  by (auto simp: mark_set_def fun_upd_def
                  graph_mark.get_node_left_def graph_mark.get_node_right_def)
 
 lemma mark_incr_left_upd [simp]:"(mark_incr q s)[p\<rightarrow>left := v] = mark_incr q s[p\<rightarrow>left := v]"
@@ -123,12 +120,6 @@ lemma reach_incl_null: assumes "R' = insert NULL R" shows "reach s R' = reach s 
 
 lemma reachable_empty [simp]: "reach s {} = {}"
   by (metis empty_subsetI reach_subset reachable_null subset_antisym)
-
-lemma mark_set_empty [simp]: "mark_set m {} u = u"
-  unfolding mark_set_def mark_def by simp
-
-lemma mark_incr_p_mark_q [simp]: "q \<noteq> p \<Longrightarrow> (mark_incr p s)[q]\<rightarrow>mark = s[q]\<rightarrow>mark"
-  by (simp add: fun_upd_def graph_mark.get_node_mark_def mark_incr_def)
 
 lemma reach_rotate:
   assumes
@@ -206,38 +197,38 @@ lemma reach_left:
 abbreviation copy_node :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "copy_node p m \<equiv> heap_node_C_update (\<lambda> h. h (p := heap_node_C m p))"
 
-abbreviation cmp_links :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> bool" where
-  "cmp_links p m l r \<equiv> l = m[p]\<rightarrow>left \<and> r = m[p]\<rightarrow>right"
+primrec cmp_links :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> bool" where
+  "cmp_links m p (l,r) = (l = m[p]\<rightarrow>left \<and> r = m[p]\<rightarrow>right)"
 
 type_synonym path_ok_t =
   "lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set
     \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr list \<Rightarrow> bool"
 
 primrec tail_ok :: path_ok_t where
-  "tail_ok s m M r q p []        = (p = NULL \<and> q = r \<and> s = m)" |
-  "tail_ok s m M r q p (p' # ps) = (p = p' \<and>
+  "tail_ok s m N r q p []        = (p = NULL \<and> q = r \<and> s = m)" |
+  "tail_ok s m N r q p (p' # ps) = (p = p' \<and>
      (s[p]\<rightarrow>mark = 1 \<and>
-        cmp_links p m q s[p]\<rightarrow>left \<and>
-        tail_ok (copy_node p m s) m M r p s[p]\<rightarrow>right ps \<or>
+        cmp_links m p (q, s[p]\<rightarrow>left) \<and>
+        tail_ok (copy_node p m s) m N r p s[p]\<rightarrow>right ps \<or>
       s[p]\<rightarrow>mark = 2 \<and>
-        m[p]\<rightarrow>left \<in> insert NULL M \<and>
-        cmp_links p m s[p]\<rightarrow>right q \<and>
-        tail_ok (copy_node p m s) m M r p s[p]\<rightarrow>left ps))"
+        m[p]\<rightarrow>left \<in> N \<and>
+        cmp_links m p (s[p]\<rightarrow>right, q) \<and>
+        tail_ok (copy_node p m s) m N r p s[p]\<rightarrow>left ps))"
 
 primrec path_ok :: path_ok_t where
-  "path_ok s m M r q p []        = (p = NULL \<and> q = r \<and> (r = NULL \<or> r \<in> M) \<and> s = m)" |
-  "path_ok s m M r q p (p' # ps) = (p = p' \<and>
+  "path_ok s m N r q p []        = (p = NULL \<and> q = r \<and> r \<in> N \<and> s = m)" |
+  "path_ok s m N r q p (p' # ps) = (p = p' \<and>
      (s[p]\<rightarrow>mark = 0 \<and>
-        cmp_links p m s[p]\<rightarrow>left s[p]\<rightarrow>right \<and>
-        tail_ok (copy_node p m s) m M r p q ps \<or>
+        cmp_links m p (s[p]\<rightarrow>left, s[p]\<rightarrow>right) \<and>
+        tail_ok (copy_node p m s) m N r p q ps \<or>
       s[p]\<rightarrow>mark = 1 \<and>
-        m[p]\<rightarrow>left \<in> insert NULL M \<and>
-        cmp_links p m q s[p]\<rightarrow>left \<and>
-        tail_ok (copy_node p m s) m M r p s[p]\<rightarrow>right ps \<or>
+        m[p]\<rightarrow>left \<in> N \<and>
+        cmp_links m p (q, s[p]\<rightarrow>left) \<and>
+        tail_ok (copy_node p m s) m N r p s[p]\<rightarrow>right ps \<or>
       s[p]\<rightarrow>mark = 2 \<and>
-        {m[p]\<rightarrow>left, m[p]\<rightarrow>right} \<subseteq> insert NULL M \<and>
-        cmp_links p m s[p]\<rightarrow>right q \<and>
-        tail_ok (copy_node p m s) m M r p s[p]\<rightarrow>left ps))"
+        {m[p]\<rightarrow>left, m[p]\<rightarrow>right} \<subseteq> N \<and>
+        cmp_links m p (s[p]\<rightarrow>right, q) \<and>
+        tail_ok (copy_node p m s) m N r p s[p]\<rightarrow>left ps))"
 
 primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> state_pred" where
   "mark_invariant P root (p,q) s =
@@ -245,6 +236,7 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
       let
         R = reach m {root};
         M = F \<union> set path;
+        N = insert NULL M;
         U = R - F;
         Z = R - M;
         t = mark_set 3 U m
@@ -255,10 +247,10 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
         F \<subseteq> R \<and>
         reach t F = F \<and>
         R = reach s {p,q} \<and>
-        path_ok s m M root q p path \<and>
+        path_ok s m N root q p path \<and>
         (\<forall> p \<in> R. is_valid_node_C s p) \<and>
-        (\<forall> p \<in> Z. s[p]\<rightarrow>mark = 0) \<and>
-        (\<forall> p \<in> F. s[p]\<rightarrow>mark = 3))"
+        (\<forall> p \<in> Z. m[p]\<rightarrow>mark = 0) \<and>
+        (\<forall> p \<in> F. m[p]\<rightarrow>mark = 3))"
 
 fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
   "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach s {p,q})"
@@ -286,6 +278,52 @@ lemma set_right_replace [simp]:
    heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s"
   by (simp add: graph_mark.update_node_right_def)
 
+lemma heap_node_C_update_id [simp]: "heap_node_C_update id s = s"
+  by simp
+
+lemma heap_node_C_update_cong:
+  "f (heap_node_C s) = g (heap_node_C s) \<Longrightarrow> heap_node_C_update f s = heap_node_C_update g s"
+  by simp
+
+lemmas heap_node_C_update_same [simp] = heap_node_C_update_cong[where g=id, simplified]
+
+lemma mark_C_update_id [simp]: "mark_C_update id n = n"
+  by (metis id_apply mark_C_update_def node_C.exhaust)
+
+lemma mark_C_update_cong:
+  "f (mark_C n) = g (mark_C n) \<Longrightarrow> mark_C_update f n = mark_C_update g n"
+  by (metis mark_C_def mark_C_update_def node_C.exhaust)
+
+lemmas mark_C_update_same [simp] = mark_C_update_cong[where g=id, simplified]
+
+lemma mark_set_same:
+  assumes "P \<subseteq> F" "\<forall> p \<in> F. s[p]\<rightarrow>mark = m"
+  shows "mark_set m P s = s"
+  unfolding mark_set_def
+  apply (rule heap_node_C_update_same)
+  apply (rule ext)
+  apply (rule mark_C_update_same)
+  apply (insert assms)
+  by (auto simp: graph_mark.get_node_mark_def)
+
+lemmas mark_set_empty [simp] = mark_set_same[of "{}" "{}", simplified]
+
+lemma mark_set_insert [simp]:
+  assumes "p \<in> R" "\<forall> p \<in> F. s[p]\<rightarrow>mark = m"
+  shows "mark_set m (R - insert p F) (mark_set m {p} s) = mark_set m (R - F) s"
+  using assms
+  apply (cases "p \<in> F")
+  apply (simp add: insert_absorb mark_set_same)
+  apply (simp add: mark_set_def)
+  apply (rule heap_node_C_update_cong)
+  apply (rule ext; simp)
+  apply (rule mark_C_update_cong)
+  by simp
+
+method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" and m :: lifted_globals =
+  (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
+        clarsimp simp: fun_upd_same)
+
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding
     mark_specification_def mark_precondition_def graph_mark'_def
@@ -301,31 +339,19 @@ lemma graph_mark'_correct: "mark_specification P root"
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
            (frule (1) reach_left[where q = q])?;
            elim disjE; clarsimp)
+    subgoal by (rotate_p path F m)
+    subgoal by (rotate_p path F m)
+    subgoal by (cases ps; clarsimp)
+    subgoal by (rotate_p path F m)
+    subgoal by (rotate_p path F m)
     subgoal
-     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-         clarsimp simp: fun_upd_same)
-    subgoal
-     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-         clarsimp simp: fun_upd_same)
-    subgoal
-     by (cases ps; clarsimp)
-    subgoal
-     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-         clarsimp simp: fun_upd_same)
-    subgoal
-     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-         clarsimp simp: fun_upd_same)
-    subgoal 
+     (* s[p]\<rightarrow>mark = 2; s[p]\<rightarrow>left = NULL *)
      apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
             rule exI[where x="mark_set 3 {p} m"];
             clarsimp simp: fun_upd_same)
      sorry
-    subgoal
-     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-         clarsimp simp: fun_upd_same)
-    subgoal
-     by (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-         clarsimp simp: fun_upd_same)
+    subgoal by (rotate_p path F m)
+    subgoal by (rotate_p path F m)
     subgoal
      apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
             rule exI[where x="mark_set 3 {p} m"];
