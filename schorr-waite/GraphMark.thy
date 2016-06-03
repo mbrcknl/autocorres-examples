@@ -320,9 +320,21 @@ lemma mark_set_insert [simp]:
   apply (rule mark_C_update_cong)
   by simp
 
+lemma reach_union_subset: "reach s (R \<union> S) \<subseteq> reach s R \<union> reach s S"
+  proof
+    fix p assume R: "p \<in> reach s (R \<union> S)" show "p \<in> reach s R \<union> reach s S"
+    using R by (induction rule: reach.induct) (auto intro: reach.intros)
+  qed
+
+lemma reach_union: "reach s (R \<union> S) = reach s R \<union> reach s S"
+  apply (rule subset_antisym)
+  apply (rule reach_union_subset)
+  apply (simp add: reach_subset reach_union_subset)
+  done
+
 method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" and m :: lifted_globals =
   (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-        clarsimp simp: fun_upd_same)
+        clarsimp simp: fun_upd_same; fail)
 
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding
@@ -338,20 +350,15 @@ lemma graph_mark'_correct: "mark_specification P root"
            cases "s[p]\<rightarrow>left = NULL";
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
            (frule (1) reach_left[where q = q])?;
-           elim disjE; clarsimp)
-    subgoal by (rotate_p path F m)
-    subgoal by (rotate_p path F m)
-    subgoal by (cases ps; clarsimp)
-    subgoal by (rotate_p path F m)
-    subgoal by (rotate_p path F m)
+           elim disjE; clarsimp;
+           (rotate_p path F m)?;
+           (cases ps; clarsimp; fail)?)
     subgoal
      (* s[p]\<rightarrow>mark = 2; s[p]\<rightarrow>left = NULL *)
      apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
             rule exI[where x="mark_set 3 {p} m"];
             clarsimp simp: fun_upd_same)
      sorry
-    subgoal by (rotate_p path F m)
-    subgoal by (rotate_p path F m)
     subgoal
      apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
             rule exI[where x="mark_set 3 {p} m"];
@@ -368,8 +375,8 @@ lemma graph_mark'_correct: "mark_specification P root"
     subgoal
      sorry
     subgoal
-     apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-            clarsimp simp: fun_upd_same)
+     apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m])
+     apply (clarsimp simp: fun_upd_same)
      sorry
     subgoal
      apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
