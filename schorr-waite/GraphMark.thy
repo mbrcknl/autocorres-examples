@@ -5,6 +5,15 @@ begin
 install_C_file "graph_mark.c"
 autocorres [heap_abs_syntax] "graph_mark.c"
 
+inductive_set reach :: "('a \<Rightarrow> 'a set) \<Rightarrow> 'a set \<Rightarrow> 'a set \<Rightarrow> 'a set"
+  for e :: "'a \<Rightarrow> 'a set" and N :: "'a set" and R :: "'a set"
+  where
+    reach_root: "p \<in> R \<Longrightarrow> p \<notin> N \<Longrightarrow> p \<in> reach e N R"
+  | reach_step: "p \<in> reach e N R \<Longrightarrow> q \<in> e p \<Longrightarrow> q \<notin> N \<Longrightarrow> q \<in> reach e N R"
+
+declare reach_root[intro]
+declare reach_step[intro]
+
 context graph_mark begin
 
 -- "Specification"
@@ -15,23 +24,21 @@ type_synonym state_pred = "lifted_globals \<Rightarrow> bool"
 definition out :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr set" where
   "out s p \<equiv> { s[p]\<rightarrow>left, s[p]\<rightarrow>right }"
 
-inductive_set reach :: "lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> node_C ptr set"
-  for s :: lifted_globals and R :: "node_C ptr set"
-  where
-    reach_root: "p \<in> R \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> p \<in> reach s R"
-  | reach_step: "p \<in> reach s R \<Longrightarrow> q \<in> out s p \<Longrightarrow> q \<noteq> NULL \<Longrightarrow> q \<in> reach s R"
-
 definition mark_set :: "mark \<Rightarrow> node_C ptr set \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "mark_set m R \<equiv> heap_node_C_update (\<lambda> h p. mark_C_update (If (p \<in> R) m) (h p))"
 
 definition mark_precondition :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> state_pred" where
-  "mark_precondition P root \<equiv> \<lambda> s. let R = reach s {root} in
-    (\<forall> p \<in> R. is_valid_node_C s p \<and> s[p]\<rightarrow>mark = 0) \<and> P (mark_set 3 R s)"
+  "mark_precondition P root \<equiv> \<lambda> s.
+    let R = reach (out s) {NULL} {root} in
+      (\<forall> p \<in> R. is_valid_node_C s p \<and> s[p]\<rightarrow>mark = 0) \<and> P (mark_set 3 R s)"
 
 definition mark_specification :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> bool" where
   "mark_specification P root \<equiv> \<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
 
 -- "Proof"
+
+abbreviation reach_p :: "lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> node_C ptr set" where
+  "reach_p s R \<equiv> reach (out s) {NULL} R"
 
 definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "mark_incr p \<equiv> heap_node_C_update (\<lambda> h. h(p := mark_C_update (\<lambda> m. m + 1) (h p)))"
@@ -56,13 +63,13 @@ sublocale graph_mark .
 lemma out_link_read_stable [simp]: "out (f s) = out s"
   unfolding out_def[abs_def] by fastforce
 
-lemma reach_link_read_stable [simp]: "reach (f s) R = reach s R"
+lemma reach_link_read_stable [simp]: "reach_p (f s) R = reach_p s R"
   proof -
-    { fix p assume "p \<in> reach (f s) R" hence "p \<in> reach s R"
-      by (induction rule: reach.induct) (auto intro: reach.intros) }
+    { fix p assume "p \<in> reach_p (f s) R" hence "p \<in> reach_p s R"
+      by (induction rule: reach.induct) auto }
     moreover
-    { fix p assume "p \<in> reach s R" hence "p \<in> reach (f s) R"
-      by (induction rule: reach.induct) (auto intro: reach.intros) }
+    { fix p assume "p \<in> reach_p s R" hence "p \<in> reach_p (f s) R"
+      by (induction rule: reach.induct) auto }
     ultimately
     show ?thesis by blast
   qed
@@ -91,50 +98,63 @@ lemma mark_incr_right_upd [simp]:"(mark_incr q s)[p\<rightarrow>right := v] = ma
   by (smt fun_upd_def fun_upd_twist fun_upd_upd graph_mark.update_node_right_def
           lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1))
 
-lemma reach_subset: assumes "R \<subseteq> S" shows "reach s R \<subseteq> reach s S"
+lemma reach_subset: assumes "R \<subseteq> S" shows "reach e N R \<subseteq> reach e N S"
   proof -
-    { fix p have "p \<in> reach s R \<Longrightarrow> R \<subseteq> S \<Longrightarrow> p \<in> reach s S"
-      by (induction rule: reach.induct) (auto intro: reach.intros) }
+    { fix p have "p \<in> reach e N R \<Longrightarrow> R \<subseteq> S \<Longrightarrow> p \<in> reach e N S"
+      by (induction rule: reach.induct) auto }
     thus ?thesis using assms by auto
   qed
 
-lemma reach_incl: "NULL \<notin> R \<Longrightarrow> R \<subseteq> reach s R"
-  by (auto intro: reach.intros)
+lemma reach_incl: "N \<inter> R = {} \<Longrightarrow> R \<subseteq> reach e N R"
+  by auto
 
-lemma reachable_null [simp]: "reach s {NULL} = {}"
+lemmas reach_incl_non_null
+  = reach_incl[where N="{NULL}", simplified]
+
+lemma reachable_excluded:
+  assumes "R \<subseteq> N"
+  shows "reach e N R = {}"
   proof -
-    { fix p have "p \<in> reach s {NULL} \<Longrightarrow> False" by (induction rule: reach.induct) auto }
-    thus ?thesis by auto
+    { fix p have "p \<in> reach e N R \<Longrightarrow> \<not> R \<subseteq> N"
+      by (induction rule: reach.induct) auto }
+    thus ?thesis using assms by auto
   qed
 
-lemma reach_incl_null: assumes "R' = insert NULL R" shows "reach s R' = reach s R"
+lemmas reachable_null [simp]
+  = reachable_excluded[of "{NULL}" "{NULL}", simplified]
+
+lemma reach_incl_excluded:
+  assumes "R' = M \<union> R" "M \<subseteq> N"
+  shows "reach e N R' = reach e N R"
   proof -
-    { fix p assume "p \<in> reach s R'" "R' = insert NULL R" hence "p \<in> reach s R"
-      by (induction rule: reach.induct) (auto intro: reach.intros) }
+    { fix p assume "p \<in> reach e N R'" hence "p \<in> reach e N R"
+      using assms by (induction rule: reach.induct) auto }
     moreover
-    { fix p assume "p \<in> reach s R" "R' = insert NULL R" hence "p \<in> reach s R'"
-      by (induction rule: reach.induct) (auto intro: reach.intros) }
+    { fix p assume "p \<in> reach e N R" hence "p \<in> reach e N R'"
+      using assms by (induction rule: reach.induct) auto }
     ultimately
     show ?thesis using assms by blast
   qed
 
-lemma reachable_empty [simp]: "reach s {} = {}"
-  by (metis empty_subsetI reach_subset reachable_null subset_antisym)
+lemmas reach_incl_null
+  = reach_incl_excluded[where M="{NULL}" and N="{NULL}", simplified]
+
+lemma reachable_empty [simp]: "reach e N {} = {}"
+  by (simp add: reachable_excluded)
 
 lemma reach_rotate:
   assumes
     P: "p \<noteq> NULL" and
     R: "R = {s[p]\<rightarrow>left, p}"
   shows
-    "reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] R = reach s {p,q}"
+    "reach_p s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] R = reach_p s {p,q}"
   proof -
     {
       fix r
-      assume "r \<in> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left, p}"
-      hence "r \<in> reach s {p,q}"
+      assume "r \<in> reach_p s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left, p}"
+      hence "r \<in> reach_p s {p,q}"
       proof (induction rule: reach.induct)
-        case reach_root thus ?case
-        using assms out_def reach.intros by blast
+        case reach_root thus ?case using assms out_def by blast
       next
         case reach_step thus ?case
         by (metis fun_upd_other fun_upd_same graph_mark.heap_abs_simps(12,14,22,24)
@@ -144,20 +164,18 @@ lemma reach_rotate:
     moreover
     {
       fix r
-      assume "r \<in> reach s {p,q}"
-      hence "r \<in> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left, p}"
+      assume "r \<in> reach_p s {p,q}"
+      hence "r \<in> reach_p s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left, p}"
       proof (induction rule: reach.induct)
-        case (reach_root r')
-        show ?case
+        case (reach_root r') show ?case
         proof (cases "r' = p")
           case True show ?thesis
-          using reach_root True reach.reach_root by auto
+          using reach_root True by auto
         next
           case False
           have Q: "r' = q" "q \<noteq> NULL" using False reach_root by auto
           show ?thesis
-          by (rule reach_step[of p])
-             (auto simp: Q P out_def fun_upd_same intro: reach.intros)
+          by (rule reach_step[of p]) (auto simp: Q P out_def fun_upd_same)
         qed
       next
         case reach_step show ?case using reach_step P
@@ -169,30 +187,30 @@ lemma reach_rotate:
   qed
 
 lemma reach_rotate_left [simp]:
-  "p \<noteq> NULL \<Longrightarrow> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left,p} = reach s {p,q}"
-  "p \<noteq> NULL \<Longrightarrow> reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p,s[p]\<rightarrow>left} = reach s {p,q}"
+  "p \<noteq> NULL \<Longrightarrow> reach_p s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {s[p]\<rightarrow>left,p} = reach_p s {p,q}"
+  "p \<noteq> NULL \<Longrightarrow> reach_p s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p,s[p]\<rightarrow>left} = reach_p s {p,q}"
   by (rule reach_rotate; auto)+
 
 lemma reach_rotate_id [simp]:
   assumes "s[p]\<rightarrow>left = p" "p \<noteq> NULL"
-  shows "reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p} = reach s {p,q}"
+  shows "reach_p s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p} = reach_p s {p,q}"
   by (rule reach_rotate) (auto simp: assms)
 
 lemma reach_rotate_null [simp]:
   assumes
     "p \<noteq> NULL" "s[p]\<rightarrow>left = NULL"
   shows
-    "reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p,NULL} = reach s {p,q}"
-    "reach s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {NULL,p} = reach s {p,q}"
+    "reach_p s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {p,NULL} = reach_p s {p,q}"
+    "reach_p s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {NULL,p} = reach_p s {p,q}"
   by (rule reach_rotate; auto simp: assms)+
 
 lemma setsum_extract_reach:
-  "p \<noteq> NULL \<Longrightarrow> (\<Sum> p \<in> reach s {p,q}. f p) = f p + (\<Sum> p \<in> reach s {p,q} - {p}. f p)"
+  "p \<noteq> NULL \<Longrightarrow> (\<Sum> p \<in> reach_p s {p,q}. f p) = f p + (\<Sum> p \<in> reach_p s {p,q} - {p}. f p)"
   by (auto simp: reach_root setsum.remove)
 
 lemma reach_left:
-  "s[p]\<rightarrow>left \<noteq> NULL \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> s[p]\<rightarrow>left \<in> reach s {p,q}"
-  using out_def reach_root reach_step by blast
+  "s[p]\<rightarrow>left \<noteq> NULL \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> s[p]\<rightarrow>left \<in> reach_p s {p,q}"
+  using out_def insertCI singletonD by auto
 
 abbreviation copy_node :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "copy_node p m \<equiv> heap_node_C_update (\<lambda> h. h (p := heap_node_C m p))"
@@ -234,7 +252,7 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
   "mark_invariant P root (p,q) s =
     (\<exists> path F m.
       let
-        R = reach m {root};
+        R = reach_p m {root};
         M = F \<union> set path;
         N = insert NULL M;
         U = R - F;
@@ -245,20 +263,20 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
         set path \<subseteq> R \<and>
         distinct path \<and>
         F \<subseteq> R \<and>
-        reach t F = F \<and>
-        R = reach s {p,q} \<and>
+        reach (out t) (set (NULL # path)) F = F \<and>
+        R = reach_p s {p,q} \<and>
         path_ok s m N root q p path \<and>
         (\<forall> p \<in> R. is_valid_node_C s p) \<and>
         (\<forall> p \<in> Z. m[p]\<rightarrow>mark = 0) \<and>
         (\<forall> p \<in> F. m[p]\<rightarrow>mark = 3))"
 
 fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
-  "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach s {p,q})"
+  "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach_p s {p,q})"
 
 lemma null_path_empty:
   assumes
     "path_ok s m M root q NULL path"
-    "set path \<subseteq> reach t roots"
+    "set path \<subseteq> reach_p t roots"
   shows
     "path = []"
   using assms by (cases path; auto elim: reach.cases)
@@ -320,17 +338,19 @@ lemma mark_set_insert [simp]:
   apply (rule mark_C_update_cong)
   by simp
 
-lemma reach_union_subset: "reach s (R \<union> S) \<subseteq> reach s R \<union> reach s S"
+lemma reach_union_subset: "reach e N (R \<union> S) \<subseteq> reach e N R \<union> reach e N S"
   proof
-    fix p assume R: "p \<in> reach s (R \<union> S)" show "p \<in> reach s R \<union> reach s S"
-    using R by (induction rule: reach.induct) (auto intro: reach.intros)
+    fix p assume R: "p \<in> reach e N (R \<union> S)" show "p \<in> reach e N R \<union> reach e N S"
+    using R by (induction rule: reach.induct) auto
   qed
 
-lemma reach_union: "reach s (R \<union> S) = reach s R \<union> reach s S"
+lemma reach_union: "reach e N (R \<union> S) = reach e N R \<union> reach e N S"
   apply (rule subset_antisym)
   apply (rule reach_union_subset)
   apply (simp add: reach_subset reach_union_subset)
   done
+
+lemmas reach_insert = reach_union[where R = "{p}" and S = R for p R, simplified]
 
 method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" and m :: lifted_globals =
   (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
@@ -357,7 +377,7 @@ lemma graph_mark'_correct: "mark_specification P root"
      (* s[p]\<rightarrow>mark = 2; s[p]\<rightarrow>left = NULL *)
      apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
             rule exI[where x="mark_set 3 {p} m"];
-            clarsimp simp: fun_upd_same)
+            clarsimp simp: fun_upd_same reach_insert[where p=p and R=F])
      sorry
     subgoal
      apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
@@ -394,7 +414,7 @@ lemma graph_mark'_correct: "mark_specification P root"
    apply (frule (1) null_path_empty)
    apply (clarsimp)
    apply (cases "root = NULL"; clarsimp)
-   apply (frule reach_subset[of "{root}" F m, simplified])
+   apply (frule reach_subset[of "{root}" F "out m" "{NULL}", simplified])
    by auto
   subgoal for s
    apply (rule exI[where x="if root = NULL then [] else [root]"];
