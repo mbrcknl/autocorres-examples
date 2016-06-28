@@ -352,6 +352,65 @@ lemma reach_union: "reach e N (R \<union> S) = reach e N R \<union> reach e N S"
 
 lemmas reach_insert = reach_union[where R = "{p}" and S = R for p R, simplified]
 
+lemma "reach e N R = R \<Longrightarrow> N \<inter> R = {}"
+  by (metis disjointI reach.cases)
+
+lemma reach_mask_subset: assumes "N \<subseteq> N'" shows "reach e N' R \<subseteq> reach e N R"
+  proof
+    fix p assume "p \<in> reach e N' R" thus "p \<in> reach e N R"
+    apply (induction rule: reach.induct)
+    using assms by auto
+  qed
+
+lemma reach_decompose:
+  "reach e N R = reach e N (E \<inter> reach e N R) \<union> reach e (E \<union> N) R"
+  proof -
+    {
+      fix p assume "p \<in> reach e N R"
+      hence "p \<in> reach e N (E \<inter> reach e N R) \<union> reach e (E \<union> N) R"
+      proof (induction rule: reach.induct)
+        case (reach_root p') thus ?case by (cases "p' \<in> E") auto
+      next
+        case reach_step thus ?case by blast
+      qed
+    }
+    moreover
+    {
+      fix p assume "p \<in> reach e N (E \<inter> reach e N R)"
+      hence "p \<in> reach e N R" by (induction rule: reach.induct) auto
+    }
+    moreover
+    {
+      fix p assume "p \<in> reach e (E \<union> N) R"
+      hence "p \<in> reach e N R" by (induction rule: reach.induct) auto
+    }
+    ultimately show ?thesis by blast
+  qed
+
+lemma reach_closure_extend:
+  assumes
+    "reach e (E \<union> N) R = R"
+    "\<forall> r \<in> E. e r \<subseteq> E \<union> N \<union> R"
+    "E \<inter> N = {}"
+  shows
+    "reach e N (E \<union> R) = E \<union> R"
+  proof -
+    { fix p assume "p \<in> reach e N (E \<union> R)" hence "p \<in> E \<union> R"
+      proof (induction rule: reach.induct)
+        case reach_root thus ?case by blast
+      next
+        case (reach_step p' q') thus ?case using assms(1,2)
+        by (metis (full_types) Un_iff contra_subsetD reach.reach_step)
+      qed }
+    moreover
+    { fix p assume "p \<in> E \<union> R" hence "p \<in> reach e N (E \<union> R)"
+      by (metis Un_iff assms(1,3) orthD1 reach.cases reach_root) }
+    ultimately show ?thesis by blast
+  qed
+
+lemmas reach_closure_extend_p = reach_closure_extend
+  [where E="{p}" and N="insert NULL ps" for p ps, simplified]
+
 method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" and m :: lifted_globals =
   (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
         clarsimp simp: fun_upd_same; fail)
@@ -371,18 +430,21 @@ lemma graph_mark'_correct: "mark_specification P root"
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
            (frule (1) reach_left[where q = q])?;
            elim disjE; clarsimp;
-           (rotate_p path F m)?;
-           (cases ps; clarsimp; fail)?)
+           (cases ps; clarsimp; fail)?;
+           (rotate_p path F m)?)
     subgoal
      (* s[p]\<rightarrow>mark = 2; s[p]\<rightarrow>left = NULL *)
      apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
             rule exI[where x="mark_set 3 {p} m"];
-            clarsimp simp: fun_upd_same reach_insert[where p=p and R=F])
+            frule reach_closure_extend_p; clarsimp simp: fun_upd_same)
+     apply (fastforce simp: out_def)
+     apply (intro conjI)
      sorry
     subgoal
      apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
             rule exI[where x="mark_set 3 {p} m"];
-            clarsimp simp: fun_upd_same)
+            frule reach_closure_extend_p; clarsimp simp: fun_upd_same)
+     apply (fastforce simp: out_def)
      sorry
     subgoal
      apply (rule exI[where x="s[p]\<rightarrow>left # path"]; rule exI[where x=F]; rule exI[where x=m];
@@ -405,8 +467,9 @@ lemma graph_mark'_correct: "mark_specification P root"
     subgoal
      apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
             rule exI[where x="mark_set 3 {p} m"];
-            clarsimp simp: fun_upd_same)
-     sorry
+            frule reach_closure_extend_p; clarsimp simp: fun_upd_same)
+     apply (fastforce simp: out_def)
+     sorry 
     done
    done
   subgoal for q s path F m
