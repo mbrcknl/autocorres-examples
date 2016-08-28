@@ -88,15 +88,13 @@ sublocale mark_set_link_read_stable?: link_read_stable "mark_set m R"
   by (auto simp: mark_set_def fun_upd_def
                  graph_mark.get_node_left_def graph_mark.get_node_right_def)
 
-lemma mark_incr_left_upd [simp]:"(mark_incr q s)[p\<rightarrow>left := v] = mark_incr q s[p\<rightarrow>left := v]"
+lemma mark_incr_ptr_upd:
+  "(mark_incr q s)[p\<rightarrow>left := v] = mark_incr q s[p\<rightarrow>left := v]"
+  "(mark_incr q s)[p\<rightarrow>right := v] = mark_incr q s[p\<rightarrow>right := v]"
   unfolding mark_incr_def
-  by (smt fun_upd_def fun_upd_twist fun_upd_upd graph_mark.update_node_left_def
-          lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(2))
-
-lemma mark_incr_right_upd [simp]:"(mark_incr q s)[p\<rightarrow>right := v] = mark_incr q s[p\<rightarrow>right := v]"
-  unfolding mark_incr_def
-  by (smt fun_upd_def fun_upd_twist fun_upd_upd graph_mark.update_node_right_def
-          lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1))
+  by (smt fun_upd_def fun_upd_twist fun_upd_upd
+          graph_mark.update_node_left_def graph_mark.update_node_right_def
+          lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1,2))+
 
 lemma reach_subset: assumes "R \<subseteq> S" shows "reach e N R \<subseteq> reach e N S"
   proof -
@@ -243,7 +241,7 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
     (\<exists> t path F.
       let
         R = reach_p t {root};
-        M = F \<union> set path;
+        M = set path \<union> F;
         N = insert NULL M;
         U = R - F;
         Z = R - M
@@ -258,11 +256,8 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
         set path \<inter> F = {} \<and>
         R = reach_p s {p,q} \<and>
         path_ok True s t N root q p path \<and>
-        (\<forall> p \<in> Z. s[p]\<rightarrow>mark = 0) \<and>
-        (\<forall> p \<in> Z. s[p]\<rightarrow>left = t[p]\<rightarrow>left) \<and>
-        (\<forall> p \<in> Z. s[p]\<rightarrow>right = t[p]\<rightarrow>right) \<and>
-        (\<forall> p \<in> R. t[p]\<rightarrow>mark = 3) \<and>
-        (\<forall> p \<in> R. is_valid_node_C s p))"
+        (\<forall> p \<in> Z. s[p]\<rightarrow>mark = 0 \<and> links_same_at s t p) \<and>
+        (\<forall> p \<in> R. t[p]\<rightarrow>mark = 3 \<and> is_valid_node_C s p))"
 
 fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
   "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach_p s {p,q})"
@@ -534,13 +529,33 @@ lemma path_ok_imp:
 
 method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" =
   (rule exI[of _ path]; rule exI[of _ F];
-   clarsimp simp: fun_upd_def heaps_differ_at_p path_ok_upd_other)
+   clarsimp simp: fun_upd_def heaps_differ_at_p path_ok_upd_other;
+   rule ccontr; clarsimp)
+
+lemma node_eq_elements:
+  assumes "s[p]\<rightarrow>left = t[p]\<rightarrow>left"
+  assumes "s[p]\<rightarrow>right = t[p]\<rightarrow>right"
+  assumes "s[p]\<rightarrow>mark = t[p]\<rightarrow>mark"
+  shows "heap_node_C s p = heap_node_C t p"
+  by (metis assms graph_mark.get_node_left_def graph_mark.get_node_mark_def
+            graph_mark.get_node_right_def node_C_idupdates(1))
+
+method step_back for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "node_C ptr set" =
+  (rule exI[of _ ps]; rule exI[of _ "insert p F"];
+   ((frule reach_closure_extend_p; clarsimp simp: fun_upd_def), fastforce simp: out_def);
+   clarsimp simp: path_ok_upd_other path_ok_imp;
+   erule heaps_differ_at_diff[where V="{p}", simplified, OF _ _ node_eq_elements];
+   (rule Diff_insert | clarsimp simp: heaps_differ_at_id heaps_differ_at_p fun_upd_def))
+
+method step_forward for path :: "node_C ptr list" and F :: "node_C ptr set" =
+  (rule exI[of _ path]; rule exI[of _ F];
+   clarsimp simp: fun_upd_def heaps_differ_at_p)
 
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding mark_specification_def mark_precondition_def graph_mark'_def
   unfolding mark_incr_def[symmetric]
   unfolding whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
-  apply (wp; clarsimp)
+  apply (wp; clarsimp simp: mark_incr_ptr_upd)
   subgoal for p q s t path F
    apply (cases path; clarsimp simp: Let_def)
    subgoal for ps
@@ -550,29 +565,26 @@ lemma graph_mark'_correct: "mark_specification P root"
            (frule (1) reach_left[where q=q])?;
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
            elim disjE; clarsimp;
-           rule exI[of _ t]; clarsimp;
-           (rotate_p path F; fail)?)
+           rule exI[of _ t]; clarsimp)
+     subgoal by (rotate_p path F)
+     subgoal by (rotate_p path F)
      subgoal by (cases ps; clarsimp)
+     subgoal by (rotate_p path F)
+     subgoal by (rotate_p path F)
+     subgoal by (step_back ps p F)
+     subgoal by (rotate_p path F)
+     subgoal by (rotate_p path F)
+     subgoal by (step_back ps p F)
      subgoal
-      apply (rule exI[of _ ps]; rule exI[of _ "insert p F"])
-      apply ((frule reach_closure_extend_p; clarsimp simp: fun_upd_def), fastforce simp: out_def)
-      apply (clarsimp simp: path_ok_upd_other path_ok_imp)
-      apply (frule heaps_differ_at_diff[where V="{p}"])
+      apply (step_forward "s[p]\<rightarrow>left # path" F)
       sorry
      subgoal
+      apply (step_forward "s[p]\<rightarrow>left # path" F)
       sorry
-     subgoal
-      sorry
-     subgoal
-      sorry
-     subgoal
-      sorry
-     subgoal
-      sorry
-     subgoal
-      sorry
-     subgoal
-      sorry
+     subgoal by (step_back ps p F)
+     subgoal by (rotate_p path F)
+     subgoal by (rotate_p path F)
+     subgoal by (step_back ps p F)
     done
    done
   subgoal for q s t path F
