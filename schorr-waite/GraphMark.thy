@@ -120,8 +120,12 @@ lemma reachable_excluded:
     thus ?thesis using assms by auto
   qed
 
-lemmas reachable_null [simp]
-  = reachable_excluded[of "{NULL}" "{NULL}", simplified]
+lemmas reachable_excluded_simps [simp] =
+  reachable_excluded[of "{}" N for N, simplified]
+  reachable_excluded[of N N for N, simplified]
+
+lemma reach_foo: "n \<in> N \<Longrightarrow> n \<notin> reach e N R"
+  oops
 
 lemma reach_incl_excluded:
   assumes "R' = M \<union> R" "M \<subseteq> N"
@@ -138,9 +142,6 @@ lemma reach_incl_excluded:
 
 lemmas reach_incl_null
   = reach_incl_excluded[where M="{NULL}" and N="{NULL}", simplified]
-
-lemma reachable_empty [simp]: "reach e N {} = {}"
-  by (simp add: reachable_excluded)
 
 lemma reach_rotate:
   assumes
@@ -212,74 +213,65 @@ lemma reach_left:
   "s[p]\<rightarrow>left \<noteq> NULL \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> s[p]\<rightarrow>left \<in> reach_p s {p,q}"
   using out_def insertCI singletonD by auto
 
-abbreviation copy_node :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
-  "copy_node p m \<equiv> heap_node_C_update (\<lambda> h. h (p := heap_node_C m p))"
+definition heaps_differ_at :: "lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> bool" where
+  "heaps_differ_at s t U \<equiv> \<exists> f. t = heap_node_C_update (\<lambda>h p. if p \<in> U then f p else h p) s"
 
-primrec cmp_links :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> bool" where
-  "cmp_links m p (l,r) = (l = m[p]\<rightarrow>left \<and> r = m[p]\<rightarrow>right)"
+primrec compare_links :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> bool" where
+  "compare_links m p (l,r) = (l = m[p]\<rightarrow>left \<and> r = m[p]\<rightarrow>right)"
 
-type_synonym path_ok_t =
-  "lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set
+abbreviation links_same_at :: "lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> bool" where
+  "links_same_at s t p \<equiv> compare_links t p (s[p]\<rightarrow>left, s[p]\<rightarrow>right)"
+
+primrec
+  path_ok :: "bool \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set
     \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr list \<Rightarrow> bool"
-
-primrec tail_ok :: path_ok_t where
-  "tail_ok s m N r q p []        = (p = NULL \<and> q = r \<and> s = m)" |
-  "tail_ok s m N r q p (p' # ps) = (p = p' \<and>
-     (s[p]\<rightarrow>mark = 1 \<and>
-        cmp_links m p (q, s[p]\<rightarrow>left) \<and>
-        tail_ok (copy_node p m s) m N r p s[p]\<rightarrow>right ps \<or>
-      s[p]\<rightarrow>mark = 2 \<and>
-        m[p]\<rightarrow>left \<in> N \<and>
-        cmp_links m p (s[p]\<rightarrow>right, q) \<and>
-        tail_ok (copy_node p m s) m N r p s[p]\<rightarrow>left ps))"
-
-primrec path_ok :: path_ok_t where
-  "path_ok s m N r q p []        = (p = NULL \<and> q = r \<and> r \<in> N \<and> s = m)" |
-  "path_ok s m N r q p (p' # ps) = (p = p' \<and>
-     (s[p]\<rightarrow>mark = 0 \<and>
-        cmp_links m p (s[p]\<rightarrow>left, s[p]\<rightarrow>right) \<and>
-        tail_ok (copy_node p m s) m N r p q ps \<or>
-      s[p]\<rightarrow>mark = 1 \<and>
-        m[p]\<rightarrow>left \<in> N \<and>
-        cmp_links m p (q, s[p]\<rightarrow>left) \<and>
-        tail_ok (copy_node p m s) m N r p s[p]\<rightarrow>right ps \<or>
-      s[p]\<rightarrow>mark = 2 \<and>
-        {m[p]\<rightarrow>left, m[p]\<rightarrow>right} \<subseteq> N \<and>
-        cmp_links m p (s[p]\<rightarrow>right, q) \<and>
-        tail_ok (copy_node p m s) m N r p s[p]\<rightarrow>left ps))"
+where
+  "path_ok z s t N r q p []        = (p = NULL \<and> q = r \<and> (z \<longrightarrow> r \<in> N))" |
+  "path_ok z s t N r q p (p' # ps) = (p = p' \<and>
+     (s[p]\<rightarrow>mark = 0 \<and> z \<and>
+        compare_links t p (s[p]\<rightarrow>left, s[p]\<rightarrow>right) \<and>
+        path_ok False s t N r p q ps \<or>
+      s[p]\<rightarrow>mark = 1 \<and> (z \<longrightarrow> q \<in> N) \<and>
+        compare_links t p (q, s[p]\<rightarrow>left) \<and>
+        path_ok False s t N r p s[p]\<rightarrow>right ps \<or>
+      s[p]\<rightarrow>mark = 2 \<and> (z \<longrightarrow> q \<in> N) \<and> t[p]\<rightarrow>left \<in> N \<and>
+        compare_links t p (s[p]\<rightarrow>right, q) \<and>
+        path_ok False s t N r p s[p]\<rightarrow>left ps))"
 
 primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> state_pred" where
   "mark_invariant P root (p,q) s =
-    (\<exists> path F m.
+    (\<exists> t path F.
       let
-        R = reach_p m {root};
+        R = reach_p t {root};
         M = F \<union> set path;
         N = insert NULL M;
         U = R - F;
-        Z = R - M;
-        t = mark_set 3 U m
+        Z = R - M
       in
         P t \<and>
+        heaps_differ_at s t U \<and>
         set path \<subseteq> R \<and>
+        NULL \<notin> set path \<and>
         distinct path \<and>
         F \<subseteq> R \<and>
         reach (out t) (set (NULL # path)) F = F \<and>
+        set path \<inter> F = {} \<and>
         R = reach_p s {p,q} \<and>
-        path_ok s m N root q p path \<and>
-        (\<forall> p \<in> R. is_valid_node_C s p) \<and>
-        (\<forall> p \<in> Z. m[p]\<rightarrow>mark = 0) \<and>
-        (\<forall> p \<in> F. m[p]\<rightarrow>mark = 3))"
+        path_ok True s t N root q p path \<and>
+        (\<forall> p \<in> Z. s[p]\<rightarrow>mark = 0) \<and>
+        (\<forall> p \<in> Z. s[p]\<rightarrow>left = t[p]\<rightarrow>left) \<and>
+        (\<forall> p \<in> Z. s[p]\<rightarrow>right = t[p]\<rightarrow>right) \<and>
+        (\<forall> p \<in> R. t[p]\<rightarrow>mark = 3) \<and>
+        (\<forall> p \<in> R. is_valid_node_C s p))"
 
 fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
   "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach_p s {p,q})"
 
-lemma null_path_empty:
-  assumes
-    "path_ok s m M root q NULL path"
-    "set path \<subseteq> reach_p t roots"
-  shows
-    "path = []"
-  using assms by (cases path; auto elim: reach.cases)
+lemma reach_excl_neg: "S \<subseteq> reach e N R \<Longrightarrow> N \<inter> S = {}"
+  by (metis reach.cases disjointI subsetD)
+
+lemma null_path_empty: "path_ok z s m M root q NULL path \<Longrightarrow> path = [] \<or> NULL \<in> set path"
+  by (cases path) auto
 
 lemma mark_incr_replace [simp]:
   "heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) (mark_incr p s) =
@@ -338,6 +330,10 @@ lemma mark_set_insert [simp]:
   apply (rule mark_C_update_cong)
   by simp
 
+lemma mark_set_get [elim]:
+  "p \<in> R \<Longrightarrow> (mark_set m R s)[p]\<rightarrow>mark = m"
+  by (simp add: mark_set_def graph_mark.get_node_mark_def)
+
 lemma reach_union_subset: "reach e N (R \<union> S) \<subseteq> reach e N R \<union> reach e N S"
   proof
     fix p assume R: "p \<in> reach e N (R \<union> S)" show "p \<in> reach e N R \<union> reach e N S"
@@ -352,7 +348,7 @@ lemma reach_union: "reach e N (R \<union> S) = reach e N R \<union> reach e N S"
 
 lemmas reach_insert = reach_union[where R = "{p}" and S = R for p R, simplified]
 
-lemma "reach e N R = R \<Longrightarrow> N \<inter> R = {}"
+lemma foo: "reach e N R = R \<Longrightarrow> N \<inter> R = {}"
   by (metis disjointI reach.cases)
 
 lemma reach_mask_subset: assumes "N \<subseteq> N'" shows "reach e N' R \<subseteq> reach e N R"
@@ -411,81 +407,187 @@ lemma reach_closure_extend:
 lemmas reach_closure_extend_p = reach_closure_extend
   [where E="{p}" and N="insert NULL ps" for p ps, simplified]
 
-method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" and m :: lifted_globals =
-  (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-        clarsimp simp: fun_upd_same; fail)
+method mark_cases =
+  (match premises in H[thin]: "s[p]\<rightarrow>mark = i \<and> P \<or> Q" for s p i P Q \<Rightarrow>
+    \<open>rule disjE[OF H]\<close>; mark_cases?)
+
+lemma heap_node_C_update_compose:
+  "heap_node_C_update f (heap_node_C_update g s) = heap_node_C_update (\<lambda> h. f (g h)) s"
+  by simp
+
+definition heaps_diff :: "lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> bool" where
+  "heaps_diff s t U \<equiv> t = heap_node_C_update (\<lambda>h p. if p \<in> U then heap_node_C t p else h p) s"
+
+lemma heaps_differ_at_equiv:
+  assumes "heaps_differ_at s t U"
+  shows "heaps_diff s t U"
+  proof -
+    obtain f where
+      H: "t = heap_node_C_update (\<lambda> h p. if p \<in> U then f p else h p) s"
+      using assms by (simp add: heaps_differ_at_def) blast
+    show ?thesis
+      apply (unfold heaps_diff_def)
+      apply (subst H)
+      apply (rule heap_node_C_update_cong, rule ext)
+      by (clarsimp simp: H)
+  qed
+
+lemma heaps_diff_equiv:
+  assumes "heaps_diff s t U"
+  shows "heaps_differ_at s t U"
+  using assms
+  unfolding heaps_differ_at_def heaps_diff_def
+  by blast
+
+lemma heaps_differ_at_id: "heaps_differ_at t t U"
+  unfolding heaps_differ_at_def
+  apply (rule exI[of _ "heap_node_C t"])
+  by simp
+
+lemma wtf_no_no_no: "(if c then t else if c then n else f) = (if c then t else f)"
+  by simp
+
+lemma heaps_differ_at_sym_imp:
+  assumes "heaps_differ_at t s U"
+  shows "heaps_differ_at s t U"
+  proof -
+    obtain f where
+      H: "s = heap_node_C_update (\<lambda> h p. if p \<in> U then f p else h p) t"
+      using assms(1) by (simp add: heaps_differ_at_def) blast
+    show ?thesis
+      apply (unfold heaps_differ_at_def)
+      apply (rule exI[of _ "heap_node_C t"])
+      apply (subst H)
+      apply (subst heap_node_C_update_compose)
+      apply (subst wtf_no_no_no)
+      by simp
+  qed
+
+lemma heaps_differ_at_sym: "heaps_differ_at t s U = heaps_differ_at s t U"
+  by (rule; rule heaps_differ_at_sym_imp)
+
+lemma heaps_differ_at_p:
+  notes unfolds =
+    heaps_differ_at_def mark_incr_def heap_node_C_update_compose
+    graph_mark.update_node_left_def graph_mark.update_node_right_def
+  assumes
+    "p \<in> U"
+    "heaps_differ_at s t U"
+  shows
+    "heaps_differ_at (heap_node_C_update (\<lambda> h. h (p := f h)) s) t U" (is ?r0)
+    "heaps_differ_at (mark_incr p s)  t U" (is ?r1)
+    "heaps_differ_at s[p\<rightarrow>left  := l] t U" (is ?r2)
+    "heaps_differ_at s[p\<rightarrow>right := r] t U" (is ?r3)
+  proof -
+    obtain f where
+      H: "t = heap_node_C_update (\<lambda> h p. if p \<in> U then f p else h p) s"
+      using assms(2) by (simp add: heaps_differ_at_def) blast
+    show ?r0 ?r1 ?r2 ?r3
+    unfolding
+      H heaps_differ_at_def mark_incr_def heap_node_C_update_compose
+      graph_mark.update_node_left_def graph_mark.update_node_right_def
+    by (rule exI[of _ f]; rule heap_node_C_update_cong; rule ext;
+        simp add: assms(1) fun_upd_def)+
+  qed
+
+lemma heaps_differ_at_diff:
+  assumes
+    "heaps_differ_at s t U"
+    "heaps_differ_at u s V"
+    "\<forall> p \<in> V. heap_node_C u p = heap_node_C t p"
+    "V \<subseteq> U"
+    "R = U - V"
+  shows
+    "heaps_differ_at u t R"
+  proof -
+    obtain f where
+      F: "t = heap_node_C_update (\<lambda> h p. if p \<in> U then f p else h p) s"
+      using assms(1) by (simp add: heaps_differ_at_def) blast
+    obtain g where
+      G: "s = heap_node_C_update (\<lambda> h p. if p \<in> V then g p else h p) u"
+      using assms(2) by (simp add: heaps_differ_at_def) blast
+    { fix h p
+      have "(if p \<in> U then f p else if p \<in> V then g p else h p) = (if p \<in> U - V then f p else h p)"
+        apply (simp add: assms(3,4))
+        sorry
+    }
+    thus ?thesis
+      by (fastforce simp: heaps_differ_at_def assms(5) F G heap_node_C_update_compose)
+  qed
+
+lemma path_ok_upd_other:
+  assumes
+    "n \<notin> set ps"
+    "path_ok z s t N root q p ps"
+  shows
+    "path_ok z (mark_incr n s) t N root q p ps"
+    "path_ok z (s[n\<rightarrow>left := l]) t N root q p ps"
+    "path_ok z (s[n\<rightarrow>right := r]) t N root q p ps"
+  using assms
+  by (induction ps arbitrary: p q z; clarsimp;
+      elim disjE; clarsimp simp: fun_upd_def)+
+
+lemma path_ok_imp:
+  assumes "q \<in> N" "path_ok False s t N root q p ps"
+  shows "path_ok True s t N root q p ps"
+  using assms by (cases ps; clarsimp)
+
+method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" =
+  (rule exI[of _ path]; rule exI[of _ F];
+   clarsimp simp: fun_upd_def heaps_differ_at_p path_ok_upd_other)
 
 lemma graph_mark'_correct: "mark_specification P root"
-  unfolding
-    mark_specification_def mark_precondition_def graph_mark'_def
-    whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
-    mark_incr_def[symmetric]
+  unfolding mark_specification_def mark_precondition_def graph_mark'_def
+  unfolding mark_incr_def[symmetric]
+  unfolding whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
   apply (wp; clarsimp)
-  subgoal for p q s path F m
+  subgoal for p q s t path F
    apply (cases path; clarsimp simp: Let_def)
    subgoal for ps
-    apply (subst setsum_extract_reach[of p]; clarsimp)+
+    apply (subst setsum_extract_reach[of p], assumption)+
     apply (cases "s[p]\<rightarrow>left = p";
            cases "s[p]\<rightarrow>left = NULL";
+           (frule (1) reach_left[where q=q])?;
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
-           (frule (1) reach_left[where q = q])?;
            elim disjE; clarsimp;
-           (cases ps; clarsimp; fail)?;
-           (rotate_p path F m)?)
-    subgoal
-     (* s[p]\<rightarrow>mark = 2; s[p]\<rightarrow>left = NULL *)
-     apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
-            rule exI[where x="mark_set 3 {p} m"];
-            frule reach_closure_extend_p; clarsimp simp: fun_upd_same)
-     apply (fastforce simp: out_def)
-     apply (intro conjI)
-     sorry
-    subgoal
-     apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
-            rule exI[where x="mark_set 3 {p} m"];
-            frule reach_closure_extend_p; clarsimp simp: fun_upd_same)
-     apply (fastforce simp: out_def)
-     sorry
-    subgoal
-     apply (rule exI[where x="s[p]\<rightarrow>left # path"]; rule exI[where x=F]; rule exI[where x=m];
-            clarsimp simp: fun_upd_same)
-     sorry
-    subgoal
-     apply (rule exI[where x="s[p]\<rightarrow>left # path"]; rule exI[where x=F]; rule exI[where x=m];
-            clarsimp simp: fun_upd_same)
-     sorry
-    subgoal
-     sorry
-    subgoal
-     apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m])
-     apply (clarsimp simp: fun_upd_same)
-     sorry
-    subgoal
-     apply (rule exI[where x=path]; rule exI[where x=F]; rule exI[where x=m];
-            clarsimp simp: fun_upd_same)
-     sorry
-    subgoal
-     apply (rule exI[where x=ps]; rule exI[where x="insert p F"];
-            rule exI[where x="mark_set 3 {p} m"];
-            frule reach_closure_extend_p; clarsimp simp: fun_upd_same)
-     apply (fastforce simp: out_def)
-     sorry 
+           rule exI[of _ t]; clarsimp;
+           (rotate_p path F; fail)?)
+     subgoal by (cases ps; clarsimp)
+     subgoal
+      apply (rule exI[of _ ps]; rule exI[of _ "insert p F"])
+      apply ((frule reach_closure_extend_p; clarsimp simp: fun_upd_def), fastforce simp: out_def)
+      apply (clarsimp simp: path_ok_upd_other path_ok_imp)
+      apply (frule heaps_differ_at_diff[where V="{p}"])
+      sorry
+     subgoal
+      sorry
+     subgoal
+      sorry
+     subgoal
+      sorry
+     subgoal
+      sorry
+     subgoal
+      sorry
+     subgoal
+      sorry
+     subgoal
+      sorry
     done
    done
-  subgoal for q s path F m
-   apply (clarsimp simp: Let_def)
-   apply (frule (1) null_path_empty)
-   apply (clarsimp)
-   apply (cases "root = NULL"; clarsimp)
-   apply (frule reach_subset[of "{root}" F "out m" "{NULL}", simplified])
+  subgoal for q s t path F
+   apply (cases path; cases "root = NULL"; clarsimp simp: Let_def heaps_differ_at_def)
+   apply (frule reach_subset[of "{root}" F "out t" "{NULL}", simplified])
    by auto
   subgoal for s
-   apply (rule exI[where x="if root = NULL then [] else [root]"];
-          rule exI[where x="{}"]; rule exI[where x=s])
-   apply (cases "root = NULL";
-          simp add: Let_def reach_incl[of "{root}", simplified])
-   apply (subst reach_incl_null[of "{root,NULL}"])
-   by auto
+   apply (rule exI[of _ "mark_set 3 (reach (out s) {NULL} {root}) s"];
+          rule exI[of _ "if root = NULL then [] else [root]"];
+          rule exI[of _ "{}"])
+   apply (auto simp: Let_def reach_incl_null[OF insert_commute] heaps_differ_at_def)
+   apply (simp add: mark_set_def)
+   apply (rule exI[of _ "mark_C_update (If True 3) \<circ> heap_node_C s"])
+   apply (rule heap_node_C_update_cong, rule ext)
+   by clarsimp
   done
 
 end
