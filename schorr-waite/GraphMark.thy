@@ -462,9 +462,6 @@ lemma heaps_differ_at_sym: "heaps_differ_at t s U = heaps_differ_at s t U"
   by (rule; rule heaps_differ_at_sym_imp)
 
 lemma heaps_differ_at_p:
-  notes unfolds =
-    heaps_differ_at_def mark_incr_def heap_node_C_update_compose
-    graph_mark.update_node_left_def graph_mark.update_node_right_def
   assumes
     "p \<in> U"
     "heaps_differ_at s t U"
@@ -485,29 +482,43 @@ lemma heaps_differ_at_p:
         simp add: assms(1) fun_upd_def)+
   qed
 
-lemma heaps_differ_at_diff:
+lemma node_eq_elements:
+  assumes "s[p]\<rightarrow>left = t[p]\<rightarrow>left"
+  assumes "s[p]\<rightarrow>right = t[p]\<rightarrow>right"
+  assumes "s[p]\<rightarrow>mark = t[p]\<rightarrow>mark"
+  shows "heap_node_C s p = heap_node_C t p"
+  by (metis assms graph_mark.get_node_left_def graph_mark.get_node_mark_def
+            graph_mark.get_node_right_def node_C_idupdates(1))
+
+lemma heaps_differ_at_replace:
+  assumes
+    "heaps_differ_at u s V"
+    "\<forall> p \<in> V. heap_node_C t p = heap_node_C u p"
+  shows
+    "u = heap_node_C_update (\<lambda> h p. if p \<in> V then heap_node_C t p else h p) s"
+  apply (subst heaps_differ_at_equiv[OF heaps_differ_at_sym_imp[OF assms(1)], simplified heaps_diff_def])
+  apply (rule heap_node_C_update_cong, rule ext)
+  by (simp add: assms(2))
+
+lemma heaps_differ_at_shrink:
   assumes
     "heaps_differ_at s t U"
-    "heaps_differ_at u s V"
-    "\<forall> p \<in> V. heap_node_C u p = heap_node_C t p"
+    "u = heap_node_C_update (\<lambda> h p. if p \<in> V then heap_node_C t p else h p) s"
     "V \<subseteq> U"
     "R = U - V"
   shows
     "heaps_differ_at u t R"
   proof -
-    obtain f where
-      F: "t = heap_node_C_update (\<lambda> h p. if p \<in> U then f p else h p) s"
-      using assms(1) by (simp add: heaps_differ_at_def) blast
-    obtain g where
-      G: "s = heap_node_C_update (\<lambda> h p. if p \<in> V then g p else h p) u"
-      using assms(2) by (simp add: heaps_differ_at_def) blast
-    { fix h p
-      have "(if p \<in> U then f p else if p \<in> V then g p else h p) = (if p \<in> U - V then f p else h p)"
-        apply (simp add: assms(3,4))
-        sorry
-    }
-    thus ?thesis
-      by (fastforce simp: heaps_differ_at_def assms(5) F G heap_node_C_update_compose)
+    have F: "t = heap_node_C_update (\<lambda> h p. if p \<in> U then heap_node_C t p else h p) s"
+      using assms(1) heaps_differ_at_equiv heaps_diff_def by simp
+    show ?thesis
+      unfolding heaps_differ_at_def assms(4)
+      apply (subst F)
+      apply (subst assms(2))
+      apply (subst heap_node_C_update_compose)
+      apply (rule exI[of _ "heap_node_C t"])
+      apply (rule heap_node_C_update_cong, rule ext)
+      using assms(3) by simp blast
   qed
 
 lemma path_ok_upd_other:
@@ -532,19 +543,12 @@ method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" =
    clarsimp simp: fun_upd_def heaps_differ_at_p path_ok_upd_other;
    rule ccontr; clarsimp)
 
-lemma node_eq_elements:
-  assumes "s[p]\<rightarrow>left = t[p]\<rightarrow>left"
-  assumes "s[p]\<rightarrow>right = t[p]\<rightarrow>right"
-  assumes "s[p]\<rightarrow>mark = t[p]\<rightarrow>mark"
-  shows "heap_node_C s p = heap_node_C t p"
-  by (metis assms graph_mark.get_node_left_def graph_mark.get_node_mark_def
-            graph_mark.get_node_right_def node_C_idupdates(1))
-
 method step_back for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "node_C ptr set" =
   (rule exI[of _ ps]; rule exI[of _ "insert p F"];
    ((frule reach_closure_extend_p; clarsimp simp: fun_upd_def), fastforce simp: out_def);
    clarsimp simp: path_ok_upd_other path_ok_imp;
-   erule heaps_differ_at_diff[where V="{p}", simplified, OF _ _ node_eq_elements];
+   erule heaps_differ_at_shrink
+     [where V="{p}", OF _ heaps_differ_at_replace, simplified, OF _ _ node_eq_elements];
    (rule Diff_insert | clarsimp simp: heaps_differ_at_id heaps_differ_at_p fun_upd_def))
 
 method step_forward for path :: "node_C ptr list" and F :: "node_C ptr set" =
