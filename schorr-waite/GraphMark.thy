@@ -500,7 +500,7 @@ lemma heaps_differ_at_replace:
   apply (rule heap_node_C_update_cong, rule ext)
   by (simp add: assms(2))
 
-lemma heaps_differ_at_shrink:
+lemma heaps_differ_at_shrink':
   assumes
     "heaps_differ_at s t U"
     "u = heap_node_C_update (\<lambda> h p. if p \<in> V then heap_node_C t p else h p) s"
@@ -520,6 +520,9 @@ lemma heaps_differ_at_shrink:
       apply (rule heap_node_C_update_cong, rule ext)
       using assms(3) by simp blast
   qed
+
+lemmas heaps_differ_at_shrink
+  = heaps_differ_at_shrink'[OF _ heaps_differ_at_replace]
 
 lemma path_ok_upd_other:
   assumes
@@ -547,13 +550,15 @@ method step_back for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "nod
   (rule exI[of _ ps]; rule exI[of _ "insert p F"];
    ((frule reach_closure_extend_p; clarsimp simp: fun_upd_def), fastforce simp: out_def);
    clarsimp simp: path_ok_upd_other path_ok_imp;
-   erule heaps_differ_at_shrink
-     [where V="{p}", OF _ heaps_differ_at_replace, simplified, OF _ _ node_eq_elements];
+   erule heaps_differ_at_shrink[where V="{p}", simplified, OF _ _ node_eq_elements];
    (rule Diff_insert | clarsimp simp: heaps_differ_at_id heaps_differ_at_p fun_upd_def))
+
+lemma path_False_non_zero: "path_ok False s t N r q p ps \<Longrightarrow> s[n]\<rightarrow>mark = 0 \<Longrightarrow> n \<notin> set ps"
+  by (induction ps arbitrary: q p) auto
 
 method step_forward for path :: "node_C ptr list" and F :: "node_C ptr set" =
   (rule exI[of _ path]; rule exI[of _ F];
-   clarsimp simp: fun_upd_def heaps_differ_at_p)
+   clarsimp simp: fun_upd_def heaps_differ_at_p path_False_non_zero)
 
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding mark_specification_def mark_precondition_def graph_mark'_def
@@ -581,6 +586,10 @@ lemma graph_mark'_correct: "mark_specification P root"
      subgoal by (step_back ps p F)
      subgoal
       apply (step_forward "s[p]\<rightarrow>left # path" F)
+      apply (rule revcut_rl[where V="t[p]\<rightarrow>left \<notin> F"])
+      apply (rule ccontr; clarsimp)
+      apply (frule (1) bspec[where x="t[p]\<rightarrow>left"])
+      thm revcut_rl
       sorry
      subgoal
       apply (step_forward "s[p]\<rightarrow>left # path" F)
