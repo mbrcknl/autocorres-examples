@@ -483,11 +483,9 @@ lemma heaps_differ_at_p:
   qed
 
 lemma node_eq_elements:
-  assumes "s[p]\<rightarrow>left = t[p]\<rightarrow>left"
-  assumes "s[p]\<rightarrow>right = t[p]\<rightarrow>right"
-  assumes "s[p]\<rightarrow>mark = t[p]\<rightarrow>mark"
-  shows "heap_node_C s p = heap_node_C t p"
-  by (metis assms graph_mark.get_node_left_def graph_mark.get_node_mark_def
+  "heap_node_C s p = heap_node_C t p
+    \<longleftrightarrow> s[p]\<rightarrow>left = t[p]\<rightarrow>left \<and> s[p]\<rightarrow>right = t[p]\<rightarrow>right \<and> s[p]\<rightarrow>mark = t[p]\<rightarrow>mark"
+  by (metis graph_mark.get_node_left_def graph_mark.get_node_mark_def
             graph_mark.get_node_right_def node_C_idupdates(1))
 
 lemma heaps_differ_at_replace:
@@ -550,15 +548,23 @@ method step_back for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "nod
   (rule exI[of _ ps]; rule exI[of _ "insert p F"];
    ((frule reach_closure_extend_p; clarsimp simp: fun_upd_def), fastforce simp: out_def);
    clarsimp simp: path_ok_upd_other path_ok_imp;
-   erule heaps_differ_at_shrink[where V="{p}", simplified, OF _ _ node_eq_elements];
+   erule heaps_differ_at_shrink[where V="{p}", simplified node_eq_elements];
    (rule Diff_insert | clarsimp simp: heaps_differ_at_id heaps_differ_at_p fun_upd_def))
 
-lemma path_False_non_zero: "path_ok False s t N r q p ps \<Longrightarrow> s[n]\<rightarrow>mark = 0 \<Longrightarrow> n \<notin> set ps"
+lemma path_False_mark_non_zero: "path_ok False s t N r q p ps \<Longrightarrow> s[n]\<rightarrow>mark = 0 \<Longrightarrow> n \<notin> set ps"
   by (induction ps arbitrary: q p) auto
 
 method step_forward for path :: "node_C ptr list" and F :: "node_C ptr set" =
   (rule exI[of _ path]; rule exI[of _ F];
-   clarsimp simp: fun_upd_def heaps_differ_at_p path_False_non_zero)
+   clarsimp simp: fun_upd_def heaps_differ_at_p path_False_mark_non_zero)
+
+lemma heaps_same_at:
+  "heaps_differ_at s t U \<Longrightarrow> p \<notin> U \<Longrightarrow> heap_node_C s p = heap_node_C t p"
+  by (clarsimp simp: heaps_differ_at_def)
+
+lemma heaps_differ_at:
+  "heaps_differ_at s t U \<Longrightarrow> heap_node_C s p \<noteq> heap_node_C t p \<Longrightarrow> p \<in> U"
+  by (cases "p \<in> U"; clarsimp simp: heaps_differ_at_def)
 
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding mark_specification_def mark_precondition_def graph_mark'_def
@@ -586,10 +592,7 @@ lemma graph_mark'_correct: "mark_specification P root"
      subgoal by (step_back ps p F)
      subgoal
       apply (step_forward "s[p]\<rightarrow>left # path" F)
-      apply (rule revcut_rl[where V="t[p]\<rightarrow>left \<notin> F"])
-      apply (rule ccontr; clarsimp)
-      apply (frule (1) bspec[where x="t[p]\<rightarrow>left"])
-      thm revcut_rl
+      apply (frule heaps_differ_at[where p="t[p]\<rightarrow>left"]; clarsimp simp: node_eq_elements)
       sorry
      subgoal
       apply (step_forward "s[p]\<rightarrow>left # path" F)
