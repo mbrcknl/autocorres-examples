@@ -592,10 +592,13 @@ lemma graph_mark'_correct: "mark_specification P root"
      subgoal by (step_back ps p F)
      subgoal
       apply (step_forward "s[p]\<rightarrow>left # path" F)
-      apply (frule heaps_differ_at[where p="t[p]\<rightarrow>left"]; clarsimp simp: node_eq_elements)
+      apply (frule heaps_differ_at[where p="s[p]\<rightarrow>left"]; clarsimp simp: node_eq_elements)
+      apply (frule bspec[of _ _ "s[p]\<rightarrow>left"]; clarsimp simp: path_False_mark_non_zero)
       sorry
      subgoal
       apply (step_forward "s[p]\<rightarrow>left # path" F)
+      apply (frule heaps_differ_at[where p="s[p]\<rightarrow>left"]; clarsimp simp: node_eq_elements)
+      apply (frule bspec[of _ _ "s[p]\<rightarrow>left"]; clarsimp simp: path_False_mark_non_zero)
       sorry
      subgoal by (step_back ps p F)
      subgoal by (rotate_p path F)
