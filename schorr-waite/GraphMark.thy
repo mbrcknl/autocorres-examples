@@ -554,10 +554,6 @@ method step_back for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "nod
 lemma path_False_mark_non_zero: "path_ok False s t N r q p ps \<Longrightarrow> s[n]\<rightarrow>mark = 0 \<Longrightarrow> n \<notin> set ps"
   by (induction ps arbitrary: q p) auto
 
-method step_forward for path :: "node_C ptr list" and F :: "node_C ptr set" =
-  (rule exI[of _ path]; rule exI[of _ F];
-   clarsimp simp: fun_upd_def heaps_differ_at_p path_False_mark_non_zero)
-
 lemma heaps_same_at:
   "heaps_differ_at s t U \<Longrightarrow> p \<notin> U \<Longrightarrow> heap_node_C s p = heap_node_C t p"
   by (clarsimp simp: heaps_differ_at_def)
@@ -565,6 +561,25 @@ lemma heaps_same_at:
 lemma heaps_differ_at:
   "heaps_differ_at s t U \<Longrightarrow> heap_node_C s p \<noteq> heap_node_C t p \<Longrightarrow> p \<in> U"
   by (cases "p \<in> U"; clarsimp simp: heaps_differ_at_def)
+
+lemma reach_exclude: "reach e N R = S \<Longrightarrow> P \<inter> S = {} \<Longrightarrow> N' = P \<union> N \<Longrightarrow> reach e N' R = S"
+  by (metis Un_empty_left reach_decompose reachable_excluded_simps(1))
+
+lemmas reach_exclude_one = reach_exclude[where P="{p}" for p, simplified]
+
+lemma path_ok_extend: "path_ok z s t N r q p ps \<Longrightarrow> N \<subseteq> M \<Longrightarrow> path_ok z s t M r q p ps"
+  by (induction ps arbitrary: z q p) auto
+
+method try_solve methods m = (m; fail)?
+
+method step_forward for left :: "node_C ptr" and path :: "node_C ptr list" and F :: "node_C ptr set" =
+  (rule exI[of _ "left # path"]; rule exI[of _ F];
+   clarsimp simp: fun_upd_def heaps_differ_at_p path_False_mark_non_zero;
+   frule heaps_differ_at[where p=left]; clarsimp simp: node_eq_elements;
+   frule bspec[of _ _ left]; clarsimp simp: path_False_mark_non_zero;
+   intro conjI; try_solve \<open>clarsimp simp: reach_exclude_one[OF _ _ insert_commute]\<close>;
+   (rule path_ok_upd_other, clarsimp simp: path_False_mark_non_zero)+;
+   elim path_ok_extend; blast)
 
 lemma graph_mark'_correct: "mark_specification P root"
   unfolding mark_specification_def mark_precondition_def graph_mark'_def
@@ -590,16 +605,8 @@ lemma graph_mark'_correct: "mark_specification P root"
      subgoal by (rotate_p path F)
      subgoal by (rotate_p path F)
      subgoal by (step_back ps p F)
-     subgoal
-      apply (step_forward "s[p]\<rightarrow>left # path" F)
-      apply (frule heaps_differ_at[where p="s[p]\<rightarrow>left"]; clarsimp simp: node_eq_elements)
-      apply (frule bspec[of _ _ "s[p]\<rightarrow>left"]; clarsimp simp: path_False_mark_non_zero)
-      sorry
-     subgoal
-      apply (step_forward "s[p]\<rightarrow>left # path" F)
-      apply (frule heaps_differ_at[where p="s[p]\<rightarrow>left"]; clarsimp simp: node_eq_elements)
-      apply (frule bspec[of _ _ "s[p]\<rightarrow>left"]; clarsimp simp: path_False_mark_non_zero)
-      sorry
+     subgoal by (step_forward "t[p]\<rightarrow>left" path F)
+     subgoal by (step_forward "t[p]\<rightarrow>right" path F)
      subgoal by (step_back ps p F)
      subgoal by (rotate_p path F)
      subgoal by (rotate_p path F)
