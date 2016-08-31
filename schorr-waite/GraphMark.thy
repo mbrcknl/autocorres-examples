@@ -343,9 +343,6 @@ lemma reach_union: "reach e N (R \<union> S) = reach e N R \<union> reach e N S"
 
 lemmas reach_insert = reach_union[where R = "{p}" and S = R for p R, simplified]
 
-lemma foo: "reach e N R = R \<Longrightarrow> N \<inter> R = {}"
-  by (metis disjointI reach.cases)
-
 lemma reach_mask_subset: assumes "N \<subseteq> N'" shows "reach e N' R \<subseteq> reach e N R"
   proof
     fix p assume "p \<in> reach e N' R" thus "p \<in> reach e N R"
@@ -410,29 +407,23 @@ lemma heap_node_C_update_compose:
   "heap_node_C_update f (heap_node_C_update g s) = heap_node_C_update (\<lambda> h. f (g h)) s"
   by simp
 
-definition heaps_diff :: "lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> bool" where
-  "heaps_diff s t U \<equiv> t = heap_node_C_update (\<lambda>h p. if p \<in> U then heap_node_C t p else h p) s"
-
-lemma heaps_differ_at_equiv:
-  assumes "heaps_differ_at s t U"
-  shows "heaps_diff s t U"
-  proof -
-    obtain f where
+lemma heaps_differ_at_alt:
+  "heaps_differ_at s t U \<equiv> t = heap_node_C_update (\<lambda>h p. if p \<in> U then heap_node_C t p else h p) s"
+  unfolding heaps_differ_at_def atomize_eq
+  proof
+    assume "\<exists>f. t = heap_node_C_update (\<lambda>h p. if p \<in> U then f p else h p) s"
+    then obtain f where
       H: "t = heap_node_C_update (\<lambda> h p. if p \<in> U then f p else h p) s"
-      using assms by (simp add: heaps_differ_at_def) blast
-    show ?thesis
-      apply (unfold heaps_diff_def)
+      by blast
+    show "t = heap_node_C_update (\<lambda>h p. if p \<in> U then heap_node_C t p else h p) s"
       apply (subst H)
       apply (rule heap_node_C_update_cong, rule ext)
       by (clarsimp simp: H)
+  next
+    assume "t = heap_node_C_update (\<lambda>h p. if p \<in> U then heap_node_C t p else h p) s"
+    thus "\<exists>f. t = heap_node_C_update (\<lambda>h p. if p \<in> U then f p else h p) s"
+      by blast
   qed
-
-lemma heaps_diff_equiv:
-  assumes "heaps_diff s t U"
-  shows "heaps_differ_at s t U"
-  using assms
-  unfolding heaps_differ_at_def heaps_diff_def
-  by blast
 
 lemma heaps_differ_at_id: "heaps_differ_at t t U"
   unfolding heaps_differ_at_def
@@ -494,7 +485,7 @@ lemma heaps_differ_at_replace:
     "\<forall> p \<in> V. heap_node_C t p = heap_node_C u p"
   shows
     "u = heap_node_C_update (\<lambda> h p. if p \<in> V then heap_node_C t p else h p) s"
-  apply (subst heaps_differ_at_equiv[OF heaps_differ_at_sym_imp[OF assms(1)], simplified heaps_diff_def])
+  apply (subst heaps_differ_at_sym_imp[OF assms(1), simplified heaps_differ_at_alt])
   apply (rule heap_node_C_update_cong, rule ext)
   by (simp add: assms(2))
 
@@ -508,7 +499,7 @@ lemma heaps_differ_at_shrink':
     "heaps_differ_at u t R"
   proof -
     have F: "t = heap_node_C_update (\<lambda> h p. if p \<in> U then heap_node_C t p else h p) s"
-      using assms(1) heaps_differ_at_equiv heaps_diff_def by simp
+      using assms(1) heaps_differ_at_alt by simp
     show ?thesis
       unfolding heaps_differ_at_def assms(4)
       apply (subst F)
@@ -553,10 +544,6 @@ method step_back for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "nod
 
 lemma path_False_mark_non_zero: "path_ok False s t N r q p ps \<Longrightarrow> s[n]\<rightarrow>mark = 0 \<Longrightarrow> n \<notin> set ps"
   by (induction ps arbitrary: q p) auto
-
-lemma heaps_same_at:
-  "heaps_differ_at s t U \<Longrightarrow> p \<notin> U \<Longrightarrow> heap_node_C s p = heap_node_C t p"
-  by (clarsimp simp: heaps_differ_at_def)
 
 lemma heaps_differ_at:
   "heaps_differ_at s t U \<Longrightarrow> heap_node_C s p \<noteq> heap_node_C t p \<Longrightarrow> p \<in> U"
