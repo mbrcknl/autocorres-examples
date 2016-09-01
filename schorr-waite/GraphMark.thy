@@ -8,11 +8,8 @@ autocorres [heap_abs_syntax] "graph_mark.c"
 inductive_set reach :: "('a \<Rightarrow> 'a set) \<Rightarrow> 'a set \<Rightarrow> 'a set \<Rightarrow> 'a set"
   for e :: "'a \<Rightarrow> 'a set" and N :: "'a set" and R :: "'a set"
   where
-    reach_root: "p \<in> R \<Longrightarrow> p \<notin> N \<Longrightarrow> p \<in> reach e N R"
-  | reach_step: "p \<in> reach e N R \<Longrightarrow> q \<in> e p \<Longrightarrow> q \<notin> N \<Longrightarrow> q \<in> reach e N R"
-
-declare reach_root[intro]
-declare reach_step[intro]
+    reach_root[intro]: "p \<in> R \<Longrightarrow> p \<notin> N \<Longrightarrow> p \<in> reach e N R"
+  | reach_step[intro]: "p \<in> reach e N R \<Longrightarrow> q \<in> e p \<Longrightarrow> q \<notin> N \<Longrightarrow> q \<in> reach e N R"
 
 context graph_mark begin
 
@@ -37,7 +34,7 @@ definition mark_specification :: "state_pred \<Rightarrow> node_C ptr \<Rightarr
 
 -- "Proof"
 
-abbreviation reach_p :: "lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> node_C ptr set" where
+abbreviation (input) reach_p :: "lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> node_C ptr set" where
   "reach_p s R \<equiv> reach (out s) {NULL} R"
 
 definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
@@ -62,17 +59,6 @@ sublocale graph_mark .
 
 lemma out_link_read_stable [simp]: "out (f s) = out s"
   unfolding out_def[abs_def] by fastforce
-
-lemma reach_link_read_stable [simp]: "reach_p (f s) R = reach_p s R"
-  proof -
-    { fix p assume "p \<in> reach_p (f s) R" hence "p \<in> reach_p s R"
-      by (induction rule: reach.induct) auto }
-    moreover
-    { fix p assume "p \<in> reach_p s R" hence "p \<in> reach_p (f s) R"
-      by (induction rule: reach.induct) auto }
-    ultimately
-    show ?thesis by blast
-  qed
 
 end
 
@@ -103,12 +89,6 @@ lemma reach_subset: assumes "R \<subseteq> S" shows "reach e N R \<subseteq> rea
     thus ?thesis using assms by auto
   qed
 
-lemma reach_incl: "N \<inter> R = {} \<Longrightarrow> R \<subseteq> reach e N R"
-  by auto
-
-lemmas reach_incl_non_null
-  = reach_incl[where N="{NULL}", simplified]
-
 lemma reachable_excluded:
   assumes "R \<subseteq> N"
   shows "reach e N R = {}"
@@ -121,9 +101,6 @@ lemma reachable_excluded:
 lemmas reachable_excluded_simps [simp] =
   reachable_excluded[of "{}" N for N, simplified]
   reachable_excluded[of N N for N, simplified]
-
-lemma reach_foo: "n \<in> N \<Longrightarrow> n \<notin> reach e N R"
-  oops
 
 lemma reach_incl_excluded:
   assumes "R' = M \<union> R" "M \<subseteq> N"
@@ -262,27 +239,6 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
 fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
   "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach_p s {p,q})"
 
-lemma reach_excl_neg: "S \<subseteq> reach e N R \<Longrightarrow> N \<inter> S = {}"
-  by (metis reach.cases disjointI subsetD)
-
-lemma null_path_empty: "path_ok z s m M root q NULL path \<Longrightarrow> path = [] \<or> NULL \<in> set path"
-  by (cases path) auto
-
-lemma mark_incr_replace [simp]:
-  "heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) (mark_incr p s) =
-   heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s"
-  by (simp add: mark_incr_def)
-
-lemma set_left_replace [simp]:
-  "heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s[p\<rightarrow>left := q] =
-   heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s"
-  by (simp add: graph_mark.update_node_left_def)
-
-lemma set_right_replace [simp]:
-  "heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s[p\<rightarrow>right := q] =
-   heap_node_C_update (\<lambda> h. h (p := heap_node_C m p)) s"
-  by (simp add: graph_mark.update_node_right_def)
-
 lemma heap_node_C_update_id [simp]: "heap_node_C_update id s = s"
   by simp
 
@@ -313,42 +269,9 @@ lemma mark_set_same:
 
 lemmas mark_set_empty [simp] = mark_set_same[of "{}" "{}", simplified]
 
-lemma mark_set_insert [simp]:
-  assumes "p \<in> R" "\<forall> p \<in> F. s[p]\<rightarrow>mark = m"
-  shows "mark_set m (R - insert p F) (mark_set m {p} s) = mark_set m (R - F) s"
-  using assms
-  apply (cases "p \<in> F")
-  apply (simp add: insert_absorb mark_set_same)
-  apply (simp add: mark_set_def)
-  apply (rule heap_node_C_update_cong)
-  apply (rule ext; simp)
-  apply (rule mark_C_update_cong)
-  by simp
-
 lemma mark_set_get [elim]:
   "p \<in> R \<Longrightarrow> (mark_set m R s)[p]\<rightarrow>mark = m"
   by (simp add: mark_set_def graph_mark.get_node_mark_def)
-
-lemma reach_union_subset: "reach e N (R \<union> S) \<subseteq> reach e N R \<union> reach e N S"
-  proof
-    fix p assume R: "p \<in> reach e N (R \<union> S)" show "p \<in> reach e N R \<union> reach e N S"
-    using R by (induction rule: reach.induct) auto
-  qed
-
-lemma reach_union: "reach e N (R \<union> S) = reach e N R \<union> reach e N S"
-  apply (rule subset_antisym)
-  apply (rule reach_union_subset)
-  apply (simp add: reach_subset reach_union_subset)
-  done
-
-lemmas reach_insert = reach_union[where R = "{p}" and S = R for p R, simplified]
-
-lemma reach_mask_subset: assumes "N \<subseteq> N'" shows "reach e N' R \<subseteq> reach e N R"
-  proof
-    fix p assume "p \<in> reach e N' R" thus "p \<in> reach e N R"
-    apply (induction rule: reach.induct)
-    using assms by auto
-  qed
 
 lemma reach_decompose:
   "reach e N R = reach e N (E \<inter> reach e N R) \<union> reach e (E \<union> N) R"
@@ -399,10 +322,6 @@ lemma reach_closure_extend:
 lemmas reach_closure_extend_p = reach_closure_extend
   [where E="{p}" and N="insert NULL ps" for p ps, simplified]
 
-method mark_cases =
-  (match premises in H[thin]: "s[p]\<rightarrow>mark = i \<and> P \<or> Q" for s p i P Q \<Rightarrow>
-    \<open>rule disjE[OF H]\<close>; mark_cases?)
-
 lemma heap_node_C_update_compose:
   "heap_node_C_update f (heap_node_C_update g s) = heap_node_C_update (\<lambda> h. f (g h)) s"
   by simp
@@ -448,9 +367,6 @@ lemma heaps_differ_at_sym_imp:
       apply (subst wtf_no_no_no)
       by simp
   qed
-
-lemma heaps_differ_at_sym: "heaps_differ_at t s U = heaps_differ_at s t U"
-  by (rule; rule heaps_differ_at_sym_imp)
 
 lemma heaps_differ_at_p:
   assumes
@@ -568,7 +484,7 @@ method step_forward for left :: "node_C ptr" and path :: "node_C ptr list" and F
    (rule path_ok_upd_other, clarsimp simp: path_False_mark_non_zero)+;
    elim path_ok_extend; blast)
 
-lemma graph_mark'_correct: "mark_specification P root"
+theorem graph_mark'_correct: "mark_specification P root"
   unfolding mark_specification_def mark_precondition_def graph_mark'_def
   unfolding mark_incr_def[symmetric]
   unfolding whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
