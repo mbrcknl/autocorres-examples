@@ -2,8 +2,16 @@ theory GraphMark
 imports "~/verification/mainline/l4v/tools/autocorres/AutoCorres"
 begin
 
-install_C_file "graph_mark.c"
-autocorres [heap_abs_syntax] "graph_mark.c"
+section {* Reachability *}
+
+text {*
+  Given a type \emph{'a} of pointers to nodes, a function \emph{e} which takes a pointer into a
+  node to the set of pointers out of that node, a set \emph{N} of pointers which should not be
+  traversed, and a set \emph{R} of pointers to root objects, then \emph{reach e N R} inductively
+  defines the set of pointers to nodes that are reachable by \emph{e} from \emph{R}, without
+  traversing pointers in \emph{N}. The set \emph{N} typically contains some distinguished pointer,
+  such as the null pointer.
+*}
 
 inductive_set reach :: "('a \<Rightarrow> 'a set) \<Rightarrow> 'a set \<Rightarrow> 'a set \<Rightarrow> 'a set"
   for e :: "'a \<Rightarrow> 'a set" and N :: "'a set" and R :: "'a set"
@@ -11,9 +19,12 @@ inductive_set reach :: "('a \<Rightarrow> 'a set) \<Rightarrow> 'a set \<Rightar
     reach_root[intro]: "p \<in> R \<Longrightarrow> p \<notin> N \<Longrightarrow> p \<in> reach e N R"
   | reach_step[intro]: "p \<in> reach e N R \<Longrightarrow> q \<in> e p \<Longrightarrow> q \<notin> N \<Longrightarrow> q \<in> reach e N R"
 
-context graph_mark begin
+section {* Specification *}
 
--- "Specification"
+install_C_file "graph_mark.c"
+autocorres [heap_abs_syntax] "graph_mark.c"
+
+context graph_mark begin
 
 type_synonym mark = "32 word"
 type_synonym state_pred = "lifted_globals \<Rightarrow> bool"
