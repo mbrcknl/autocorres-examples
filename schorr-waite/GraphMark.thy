@@ -28,8 +28,6 @@ text {*
 install_C_file "graph_mark.c"
 autocorres [heap_abs_syntax] "graph_mark.c"
 
-context graph_mark begin
-
 text {* The type of the \emph{mark} field of the \emph{node} record. *}
 type_synonym mark = "32 word"
 
@@ -92,13 +90,98 @@ text {*
   show the total correctness of the Schorr-Waite graph marking procedure.
 *}
 
+subsection {* Graph reachability lemmas *}
+
+lemma reach_subset: assumes "R \<subseteq> S" shows "reach e N R \<subseteq> reach e N S"
+  proof -
+    { fix p have "p \<in> reach e N R \<Longrightarrow> R \<subseteq> S \<Longrightarrow> p \<in> reach e N S"
+      by (induction rule: reach.induct) auto }
+    thus ?thesis using assms by auto
+  qed
+
+lemma reachable_excluded:
+  assumes "R \<subseteq> N"
+  shows "reach e N R = {}"
+  proof -
+    { fix p have "p \<in> reach e N R \<Longrightarrow> \<not> R \<subseteq> N"
+      by (induction rule: reach.induct) auto }
+    thus ?thesis using assms by auto
+  qed
+
+lemmas reachable_excluded_simps [simp] =
+  reachable_excluded[of "{}" N for N, simplified]
+  reachable_excluded[of N N for N, simplified]
+
+lemma reach_incl_excluded:
+  assumes "R' = M \<union> R" "M \<subseteq> N"
+  shows "reach e N R' = reach e N R"
+  proof -
+    { fix p assume "p \<in> reach e N R'" hence "p \<in> reach e N R"
+      using assms by (induction rule: reach.induct) auto }
+    moreover
+    { fix p assume "p \<in> reach e N R" hence "p \<in> reach e N R'"
+      using assms by (induction rule: reach.induct) auto }
+    ultimately
+    show ?thesis using assms by blast
+  qed
+
+lemmas reach_incl_null
+  = reach_incl_excluded[where M="{NULL}" and N="{NULL}", simplified]
+
+lemma reach_decompose:
+  "reach e N R = reach e N (E \<inter> reach e N R) \<union> reach e (E \<union> N) R"
+  proof -
+    {
+      fix p assume "p \<in> reach e N R"
+      hence "p \<in> reach e N (E \<inter> reach e N R) \<union> reach e (E \<union> N) R"
+      proof (induction rule: reach.induct)
+        case (reach_root p') thus ?case by (cases "p' \<in> E") auto
+      next
+        case reach_step thus ?case by blast
+      qed
+    }
+    moreover
+    {
+      fix p assume "p \<in> reach e N (E \<inter> reach e N R)"
+      hence "p \<in> reach e N R" by (induction rule: reach.induct) auto
+    }
+    moreover
+    {
+      fix p assume "p \<in> reach e (E \<union> N) R"
+      hence "p \<in> reach e N R" by (induction rule: reach.induct) auto
+    }
+    ultimately show ?thesis by blast
+  qed
+
+lemma reach_closure_extend:
+  assumes
+    "reach e (E \<union> N) R = R"
+    "\<forall> r \<in> E. e r \<subseteq> E \<union> N \<union> R"
+    "E \<inter> N = {}"
+  shows
+    "reach e N (E \<union> R) = E \<union> R"
+  proof -
+    { fix p assume "p \<in> reach e N (E \<union> R)" hence "p \<in> E \<union> R"
+      proof (induction rule: reach.induct)
+        case reach_root thus ?case by blast
+      next
+        case (reach_step p' q') thus ?case using assms(1,2)
+        by (metis (full_types) Un_iff contra_subsetD reach.reach_step)
+      qed }
+    moreover
+    { fix p assume "p \<in> E \<union> R" hence "p \<in> reach e N (E \<union> R)"
+      by (metis Un_iff assms(1,3) orthD1 reach.cases reach_root) }
+    ultimately show ?thesis by blast
+  qed
+
+lemmas reach_closure_extend_p = reach_closure_extend
+  [where E="{p}" and N="insert NULL ps" for p ps, simplified]
+
 definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "mark_incr p \<equiv> heap_node_C_update (\<lambda> h. h(p := mark_C_update (\<lambda> m. m + 1) (h p)))"
 
 lemma mark_incr_mark [simp]: "(mark_incr q s)[p]\<rightarrow>mark = s[p]\<rightarrow>mark + (if p = q then 1 else 0)"
   unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_mark_def)
-
-end
 
 locale link_read_stable =
   fixes
@@ -136,42 +219,6 @@ lemma mark_incr_ptr_upd:
   by (smt fun_upd_def fun_upd_twist fun_upd_upd
           graph_mark.update_node_left_def graph_mark.update_node_right_def
           lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1,2))+
-
-lemma reach_subset: assumes "R \<subseteq> S" shows "reach e N R \<subseteq> reach e N S"
-  proof -
-    { fix p have "p \<in> reach e N R \<Longrightarrow> R \<subseteq> S \<Longrightarrow> p \<in> reach e N S"
-      by (induction rule: reach.induct) auto }
-    thus ?thesis using assms by auto
-  qed
-
-lemma reachable_excluded:
-  assumes "R \<subseteq> N"
-  shows "reach e N R = {}"
-  proof -
-    { fix p have "p \<in> reach e N R \<Longrightarrow> \<not> R \<subseteq> N"
-      by (induction rule: reach.induct) auto }
-    thus ?thesis using assms by auto
-  qed
-
-lemmas reachable_excluded_simps [simp] =
-  reachable_excluded[of "{}" N for N, simplified]
-  reachable_excluded[of N N for N, simplified]
-
-lemma reach_incl_excluded:
-  assumes "R' = M \<union> R" "M \<subseteq> N"
-  shows "reach e N R' = reach e N R"
-  proof -
-    { fix p assume "p \<in> reach e N R'" hence "p \<in> reach e N R"
-      using assms by (induction rule: reach.induct) auto }
-    moreover
-    { fix p assume "p \<in> reach e N R" hence "p \<in> reach e N R'"
-      using assms by (induction rule: reach.induct) auto }
-    ultimately
-    show ?thesis using assms by blast
-  qed
-
-lemmas reach_incl_null
-  = reach_incl_excluded[where M="{NULL}" and N="{NULL}", simplified]
 
 lemma reach_rotate:
   assumes
@@ -328,55 +375,6 @@ lemma mark_set_get [elim]:
   "p \<in> R \<Longrightarrow> (mark_set m R s)[p]\<rightarrow>mark = m"
   by (simp add: mark_set_def graph_mark.get_node_mark_def)
 
-lemma reach_decompose:
-  "reach e N R = reach e N (E \<inter> reach e N R) \<union> reach e (E \<union> N) R"
-  proof -
-    {
-      fix p assume "p \<in> reach e N R"
-      hence "p \<in> reach e N (E \<inter> reach e N R) \<union> reach e (E \<union> N) R"
-      proof (induction rule: reach.induct)
-        case (reach_root p') thus ?case by (cases "p' \<in> E") auto
-      next
-        case reach_step thus ?case by blast
-      qed
-    }
-    moreover
-    {
-      fix p assume "p \<in> reach e N (E \<inter> reach e N R)"
-      hence "p \<in> reach e N R" by (induction rule: reach.induct) auto
-    }
-    moreover
-    {
-      fix p assume "p \<in> reach e (E \<union> N) R"
-      hence "p \<in> reach e N R" by (induction rule: reach.induct) auto
-    }
-    ultimately show ?thesis by blast
-  qed
-
-lemma reach_closure_extend:
-  assumes
-    "reach e (E \<union> N) R = R"
-    "\<forall> r \<in> E. e r \<subseteq> E \<union> N \<union> R"
-    "E \<inter> N = {}"
-  shows
-    "reach e N (E \<union> R) = E \<union> R"
-  proof -
-    { fix p assume "p \<in> reach e N (E \<union> R)" hence "p \<in> E \<union> R"
-      proof (induction rule: reach.induct)
-        case reach_root thus ?case by blast
-      next
-        case (reach_step p' q') thus ?case using assms(1,2)
-        by (metis (full_types) Un_iff contra_subsetD reach.reach_step)
-      qed }
-    moreover
-    { fix p assume "p \<in> E \<union> R" hence "p \<in> reach e N (E \<union> R)"
-      by (metis Un_iff assms(1,3) orthD1 reach.cases reach_root) }
-    ultimately show ?thesis by blast
-  qed
-
-lemmas reach_closure_extend_p = reach_closure_extend
-  [where E="{p}" and N="insert NULL ps" for p ps, simplified]
-
 lemma heap_node_C_update_compose:
   "heap_node_C_update f (heap_node_C_update g s) = heap_node_C_update (\<lambda> h. f (g h)) s"
   by simp
@@ -428,7 +426,6 @@ lemma heaps_differ_at_p:
     "p \<in> U"
     "heaps_differ_at s t U"
   shows
-    "heaps_differ_at (heap_node_C_update (\<lambda> h. h (p := f h)) s) t U" (is ?r0)
     "heaps_differ_at (mark_incr p s)  t U" (is ?r1)
     "heaps_differ_at s[p\<rightarrow>left  := l] t U" (is ?r2)
     "heaps_differ_at s[p\<rightarrow>right := r] t U" (is ?r3)
@@ -436,7 +433,7 @@ lemma heaps_differ_at_p:
     obtain f where
       H: "t = heap_node_C_update (\<lambda> h p. if p \<in> U then f p else h p) s"
       using assms(2) by (simp add: heaps_differ_at_def) blast
-    show ?r0 ?r1 ?r2 ?r3
+    show ?r1 ?r2 ?r3
     unfolding
       H heaps_differ_at_def mark_incr_def heap_node_C_update_compose
       graph_mark.update_node_left_def graph_mark.update_node_right_def
