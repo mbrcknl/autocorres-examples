@@ -2,15 +2,15 @@ theory GraphMark
 imports "~/verification/mainline/l4v/tools/autocorres/AutoCorres"
 begin
 
-section {* Reachability *}
+section {* Graph reachability *}
 
 text {*
-  Given a type \emph{'a} of pointers to nodes, a function \emph{e} which takes a pointer into a
-  node to the set of pointers out of that node, a set \emph{N} of pointers which should not be
-  traversed, and a set \emph{R} of pointers to root objects, then \emph{reach e N R} inductively
-  defines the set of pointers to nodes that are reachable by \emph{e} from \emph{R}, without
-  traversing pointers in \emph{N}. The set \emph{N} typically contains some distinguished pointer,
-  such as the null pointer.
+  Given a type \emph{'a} of pointers to nodes, a function \emph{e} which maps a pointer into a
+  node to the set of pointers out of that node, and a set \emph{R} of pointers to root objects,
+  then \emph{reach e N R} inductively defines the set of pointers to nodes that are reachable by
+  \emph{e} from \emph{R}. The parameter \emph{N} may be used to declare a set of pointers which
+  are considered unreachable by definition, and typically contains one or more distinguished
+  pointers, such as the null pointer.
 *}
 
 inductive_set reach :: "('a \<Rightarrow> 'a set) \<Rightarrow> 'a set \<Rightarrow> 'a set \<Rightarrow> 'a set"
@@ -19,34 +19,78 @@ inductive_set reach :: "('a \<Rightarrow> 'a set) \<Rightarrow> 'a set \<Rightar
     reach_root[intro]: "p \<in> R \<Longrightarrow> p \<notin> N \<Longrightarrow> p \<in> reach e N R"
   | reach_step[intro]: "p \<in> reach e N R \<Longrightarrow> q \<in> e p \<Longrightarrow> q \<notin> N \<Longrightarrow> q \<in> reach e N R"
 
-section {* Specification *}
+section {* Specification of a graph-marking algorithm *}
+
+text {*
+  We load the C program here to gain access to various types and constants for the specification.
+*}
 
 install_C_file "graph_mark.c"
 autocorres [heap_abs_syntax] "graph_mark.c"
 
 context graph_mark begin
 
+text {* The type of the \emph{mark} field of the \emph{node} record. *}
 type_synonym mark = "32 word"
+
+text {* The type of predicates over the global program state. *}
 type_synonym state_pred = "lifted_globals \<Rightarrow> bool"
+
+text {* The type of graph marking procedures. *}
+type_synonym mark_proc = "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> (unit \<times> lifted_globals) set \<times> bool"
+
+text {*
+  For a pointer to node \emph{p} and state \emph{s}, the pointers out of the node are given by
+  \emph{out s p}.
+*}
 
 definition out :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr set" where
   "out s p \<equiv> { s[p]\<rightarrow>left, s[p]\<rightarrow>right }"
 
+text {*
+  Given an unsigned \emph{m}, a set \emph{R} of pointers to nodes, and a global state \emph{s},
+  \emph{mark_set m R s} is a new state that is the same as \emph{s}, except that the \emph{mark}
+  field of each node pointed to by \emph{R} has been set to \emph{m}.
+*}
+
 definition mark_set :: "mark \<Rightarrow> node_C ptr set \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "mark_set m R \<equiv> heap_node_C_update (\<lambda> h p. mark_C_update (If (p \<in> R) m) (h p))"
 
-definition mark_precondition :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> state_pred" where
-  "mark_precondition P root \<equiv> \<lambda> s.
-    let R = reach (out s) {NULL} {root} in
-      (\<forall> p \<in> R. is_valid_node_C s p \<and> s[p]\<rightarrow>mark = 0) \<and> P (mark_set 3 R s)"
-
-definition mark_specification :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> bool" where
-  "mark_specification P root \<equiv> \<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
-
--- "Proof"
+text {*
+  For a state \emph{s} and set \emph{R} of pointers to nodes, \emph{reach_p s R} is the set of
+  nodes reachable in state \emph{s} from \emph{R}, and is given by a suitable parameterisation
+  of the \emph{reach} relation.
+*}
 
 abbreviation (input) reach_p :: "lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> node_C ptr set" where
   "reach_p s R \<equiv> reach (out s) {NULL} R"
+
+text {*
+  Given an arbitrary post-condition \emph{P}, and pointer-to-node \emph{root}, we can state a
+  corresponding sufficient pre-condition. For \emph{P} to be true of the final state, it is
+  sufficient to ensure that reachable nodes are valid and unmarked in the initial state, and
+  that \emph{P} is true of a suitably modified copy of the initial state. Although not strictly
+  the \emph{weakest} possible precondition, it is the weakest for the cases we care about.
+*}
+
+definition mark_precondition :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> state_pred" where
+  "mark_precondition P root \<equiv> \<lambda> s. let R = reach_p s {root} in
+    (\<forall> p \<in> R. is_valid_node_C s p \<and> s[p]\<rightarrow>mark = 0) \<and> P (mark_set 3 R s)"
+
+text {*
+  A graph-marking procedure \emph{mark_proc} is totally correct if, for every post-condition
+  \emph{P} and root pointer \emph{root}, the following Hoare triple is valid.
+*}
+
+definition mark_correct :: "mark_proc \<Rightarrow> bool" where
+  "mark_correct mark_proc \<equiv> \<forall> P root. \<lbrace> mark_precondition P root \<rbrace> mark_proc root \<lbrace> \<lambda> _. P \<rbrace>!"
+
+section {* Proof of correctness *}
+
+text {*
+  We prove a number of lemmas about graph reachability, and program state updates, and finally
+  show the total correctness of the Schorr-Waite graph marking procedure.
+*}
 
 definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "mark_incr p \<equiv> heap_node_C_update (\<lambda> h. h(p := mark_C_update (\<lambda> m. m + 1) (h p)))"
@@ -495,8 +539,8 @@ method step_forward for left :: "node_C ptr" and path :: "node_C ptr list" and F
    (rule path_ok_upd_other, clarsimp simp: path_False_mark_non_zero)+;
    elim path_ok_extend; blast)
 
-theorem graph_mark'_correct: "mark_specification P root"
-  unfolding mark_specification_def mark_precondition_def graph_mark'_def
+lemma graph_mark'_correct': "\<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
+  unfolding mark_precondition_def graph_mark'_def
   unfolding mark_incr_def[symmetric]
   unfolding whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
   apply (wp; clarsimp simp: mark_incr_ptr_upd)
@@ -541,6 +585,9 @@ theorem graph_mark'_correct: "mark_specification P root"
    apply (rule heap_node_C_update_cong, rule ext)
    by clarsimp
   done
+
+theorem graph_mark'_correct: "mark_correct graph_mark'"
+  using graph_mark'_correct' mark_correct_def by blast
 
 end
 

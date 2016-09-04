@@ -1,3 +1,12 @@
+// The Schorr-Waite graph-marking procedure.
+//
+// This version is based on a description by David Gries, modified to allow null pointers
+// anywhere in the graph (including the root).
+//
+// http://www.cs.cornell.edu/courses/cs312/2007fa/lectures/lec21-schorr-waite.pdf
+// (retrieved 4 September 2016).
+
+
 struct node {
   struct node * left;
   struct node * right;
@@ -23,6 +32,8 @@ void graph_mark(struct node * p) {
     }
   }
 }
+
+// A recursive graph-marking procedure, which can be regarded as an executable specification.
 
 void graph_mark_recursive(struct node * p) {
   if (p && !p->mark) {
