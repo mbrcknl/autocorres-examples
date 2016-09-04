@@ -23,3 +23,11 @@ void graph_mark(struct node * p) {
     }
   }
 }
+
+void graph_mark_recursive(struct node * p) {
+  if (p && !p->mark) {
+    p->mark = 3;
+    graph_mark_recursive(p->left);
+    graph_mark_recursive(p->right);
+  }
+}
