@@ -153,6 +153,11 @@ lemma reach_decompose:
     ultimately show ?thesis by blast
   qed
 
+lemma reach_exclude: "reach e N R = S \<Longrightarrow> P \<inter> S = {} \<Longrightarrow> N' = P \<union> N \<Longrightarrow> reach e N' R = S"
+  by (metis Un_empty_left reach_decompose reachable_excluded_simps(1))
+
+lemmas reach_exclude_one = reach_exclude[where P="{p}" for p, simplified]
+
 lemma reach_closure_extend:
   assumes
     "reach e (E \<union> N) R = R"
@@ -176,49 +181,6 @@ lemma reach_closure_extend:
 
 lemmas reach_closure_extend_p = reach_closure_extend
   [where E="{p}" and N="insert NULL ps" for p ps, simplified]
-
-definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
-  "mark_incr p \<equiv> heap_node_C_update (\<lambda> h. h(p := mark_C_update (\<lambda> m. m + 1) (h p)))"
-
-lemma mark_incr_mark [simp]: "(mark_incr q s)[p]\<rightarrow>mark = s[p]\<rightarrow>mark + (if p = q then 1 else 0)"
-  unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_mark_def)
-
-locale link_read_stable =
-  fixes
-    f :: "lifted_globals \<Rightarrow> lifted_globals"
-  assumes
-    read_stable_l [simp]: "\<And> p. (f s)[p]\<rightarrow>left = s[p]\<rightarrow>left" and
-    read_stable_r [simp]: "\<And> p. (f s)[p]\<rightarrow>right = s[p]\<rightarrow>right" and
-    read_stable_v [simp]: "\<And> p. is_valid_node_C (f s) p = is_valid_node_C s p"
-
-context link_read_stable begin
-
-sublocale graph_mark .
-
-lemma out_link_read_stable [simp]: "out (f s) = out s"
-  unfolding out_def[abs_def] by fastforce
-
-end
-
-context graph_mark begin
-
-sublocale mark_incr_link_read_stable?: link_read_stable "mark_incr q"
-  apply unfold_locales
-  by (auto simp: mark_incr_def fun_upd_def
-                 graph_mark.get_node_left_def graph_mark.get_node_right_def)
-
-sublocale mark_set_link_read_stable?: link_read_stable "mark_set m R"
-  apply unfold_locales
-  by (auto simp: mark_set_def fun_upd_def
-                 graph_mark.get_node_left_def graph_mark.get_node_right_def)
-
-lemma mark_incr_ptr_upd:
-  "(mark_incr q s)[p\<rightarrow>left := v] = mark_incr q s[p\<rightarrow>left := v]"
-  "(mark_incr q s)[p\<rightarrow>right := v] = mark_incr q s[p\<rightarrow>right := v]"
-  unfolding mark_incr_def
-  by (smt fun_upd_def fun_upd_twist fun_upd_upd
-          graph_mark.update_node_left_def graph_mark.update_node_right_def
-          lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1,2))+
 
 lemma reach_rotate:
   assumes
@@ -282,13 +244,58 @@ lemma reach_rotate_null [simp]:
     "reach_p s[p\<rightarrow>left := s[p]\<rightarrow>right][p\<rightarrow>right := q] {NULL,p} = reach_p s {p,q}"
   by (rule reach_rotate; auto simp: assms)+
 
-lemma setsum_extract_reach:
-  "p \<noteq> NULL \<Longrightarrow> (\<Sum> p \<in> reach_p s {p,q}. f p) = f p + (\<Sum> p \<in> reach_p s {p,q} - {p}. f p)"
-  by (auto simp: reach_root setsum.remove)
-
 lemma reach_left:
   "s[p]\<rightarrow>left \<noteq> NULL \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> s[p]\<rightarrow>left \<in> reach_p s {p,q}"
   using out_def insertCI singletonD by auto
+
+subsection {* State update lemmas *}
+
+definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
+  "mark_incr p \<equiv> heap_node_C_update (\<lambda> h. h(p := mark_C_update (\<lambda> m. m + 1) (h p)))"
+
+lemma mark_incr_mark [simp]: "(mark_incr q s)[p]\<rightarrow>mark = s[p]\<rightarrow>mark + (if p = q then 1 else 0)"
+  unfolding mark_incr_def by (simp add: fun_upd_def graph_mark.get_node_mark_def)
+
+locale link_read_stable =
+  fixes
+    f :: "lifted_globals \<Rightarrow> lifted_globals"
+  assumes
+    read_stable_l [simp]: "\<And> p. (f s)[p]\<rightarrow>left = s[p]\<rightarrow>left" and
+    read_stable_r [simp]: "\<And> p. (f s)[p]\<rightarrow>right = s[p]\<rightarrow>right" and
+    read_stable_v [simp]: "\<And> p. is_valid_node_C (f s) p = is_valid_node_C s p"
+
+context link_read_stable begin
+
+sublocale graph_mark .
+
+lemma out_link_read_stable [simp]: "out (f s) = out s"
+  unfolding out_def[abs_def] by fastforce
+
+end
+
+context graph_mark begin
+
+sublocale mark_incr_link_read_stable?: link_read_stable "mark_incr q"
+  apply unfold_locales
+  by (auto simp: mark_incr_def fun_upd_def
+                 graph_mark.get_node_left_def graph_mark.get_node_right_def)
+
+sublocale mark_set_link_read_stable?: link_read_stable "mark_set m R"
+  apply unfold_locales
+  by (auto simp: mark_set_def fun_upd_def
+                 graph_mark.get_node_left_def graph_mark.get_node_right_def)
+
+lemma mark_incr_ptr_upd:
+  "(mark_incr q s)[p\<rightarrow>left := v] = mark_incr q s[p\<rightarrow>left := v]"
+  "(mark_incr q s)[p\<rightarrow>right := v] = mark_incr q s[p\<rightarrow>right := v]"
+  unfolding mark_incr_def
+  by (smt fun_upd_def fun_upd_twist fun_upd_upd
+          graph_mark.update_node_left_def graph_mark.update_node_right_def
+          lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1,2))+
+
+lemma setsum_extract_reach:
+  "p \<noteq> NULL \<Longrightarrow> (\<Sum> p \<in> reach_p s {p,q}. f p) = f p + (\<Sum> p \<in> reach_p s {p,q} - {p}. f p)"
+  by (auto simp: reach_root setsum.remove)
 
 definition heaps_differ_at :: "lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> bool" where
   "heaps_differ_at s t U \<equiv> \<exists> f. t = heap_node_C_update (\<lambda>h p. if p \<in> U then f p else h p) s"
@@ -516,11 +523,6 @@ lemma path_False_mark_non_zero: "path_ok False s t N r q p ps \<Longrightarrow> 
 lemma heaps_differ_at:
   "heaps_differ_at s t U \<Longrightarrow> heap_node_C s p \<noteq> heap_node_C t p \<Longrightarrow> p \<in> U"
   by (cases "p \<in> U"; clarsimp simp: heaps_differ_at_def)
-
-lemma reach_exclude: "reach e N R = S \<Longrightarrow> P \<inter> S = {} \<Longrightarrow> N' = P \<union> N \<Longrightarrow> reach e N' R = S"
-  by (metis Un_empty_left reach_decompose reachable_excluded_simps(1))
-
-lemmas reach_exclude_one = reach_exclude[where P="{p}" for p, simplified]
 
 lemma path_ok_extend: "path_ok z s t N r q p ps \<Longrightarrow> N \<subseteq> M \<Longrightarrow> path_ok z s t M r q p ps"
   by (induction ps arbitrary: z q p) auto
