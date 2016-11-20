@@ -500,19 +500,12 @@ subsection {* Methods for proving invariant preservation *}
 
 method try_solve methods m = (m; fail)?
 
-method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" =
+method rotate for path :: "node_C ptr list" and F :: "node_C ptr set" =
   (rule exI[of _ path]; rule exI[of _ F];
    clarsimp simp: fun_upd_def heaps_differ_at_p path_ok_upd_other;
    rule ccontr; clarsimp)
 
-method step_back for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "node_C ptr set" =
-  (rule exI[of _ ps]; rule exI[of _ "insert p F"];
-   ((frule reach_closure_extend_p; clarsimp simp: fun_upd_def), fastforce simp: out_def);
-   clarsimp simp: path_ok_upd_other path_ok_imp;
-   erule heaps_differ_at_shrink[where V="{p}", simplified node_eq_elements];
-   (rule Diff_insert | clarsimp simp: heaps_differ_at_id heaps_differ_at_p fun_upd_def))
-
-method step_forward for left :: "node_C ptr" and path :: "node_C ptr list" and F :: "node_C ptr set" =
+method advance for left :: "node_C ptr" and path :: "node_C ptr list" and F :: "node_C ptr set" =
   (rule exI[of _ "left # path"]; rule exI[of _ F];
    clarsimp simp: fun_upd_def heaps_differ_at_p path_False_mark_non_zero;
    frule heaps_differ_at[where p=left]; clarsimp simp: node_eq_elements;
@@ -520,6 +513,13 @@ method step_forward for left :: "node_C ptr" and path :: "node_C ptr list" and F
    intro conjI; try_solve \<open>clarsimp simp: reach_exclude_one[OF _ _ insert_commute]\<close>;
    (rule path_ok_upd_other, clarsimp simp: path_False_mark_non_zero)+;
    elim path_ok_extend; blast)
+
+method retreat for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "node_C ptr set" =
+  (rule exI[of _ ps]; rule exI[of _ "insert p F"];
+   ((frule reach_closure_extend_p; clarsimp simp: fun_upd_def), fastforce simp: out_def);
+   clarsimp simp: path_ok_upd_other path_ok_imp;
+   erule heaps_differ_at_shrink[where V="{p}", simplified node_eq_elements];
+   (rule Diff_insert | clarsimp simp: heaps_differ_at_id heaps_differ_at_p fun_upd_def))
 
 subsection {* Proof of correctness *}
 
@@ -538,21 +538,21 @@ lemma graph_mark'_correct': "\<lbrace> mark_precondition P root \<rbrace> graph_
            cases "s[s[p]\<rightarrow>left]\<rightarrow>mark = 0";
            elim disjE; clarsimp;
            rule exI[of _ t]; clarsimp)
-     subgoal by (rotate_p path F)
-     subgoal by (rotate_p path F)
+     subgoal by (rotate path F)
+     subgoal by (rotate path F)
      subgoal by (cases ps; clarsimp)
-     subgoal by (rotate_p path F)
-     subgoal by (rotate_p path F)
-     subgoal by (step_back ps p F)
-     subgoal by (rotate_p path F)
-     subgoal by (rotate_p path F)
-     subgoal by (step_back ps p F)
-     subgoal by (step_forward "t[p]\<rightarrow>left" path F)
-     subgoal by (step_forward "t[p]\<rightarrow>right" path F)
-     subgoal by (step_back ps p F)
-     subgoal by (rotate_p path F)
-     subgoal by (rotate_p path F)
-     subgoal by (step_back ps p F)
+     subgoal by (rotate path F)
+     subgoal by (rotate path F)
+     subgoal by (retreat ps p F)
+     subgoal by (rotate path F)
+     subgoal by (rotate path F)
+     subgoal by (retreat ps p F)
+     subgoal by (advance "t[p]\<rightarrow>left" path F)
+     subgoal by (advance "t[p]\<rightarrow>right" path F)
+     subgoal by (retreat ps p F)
+     subgoal by (rotate path F)
+     subgoal by (rotate path F)
+     subgoal by (retreat ps p F)
     done
    done
   subgoal for q s t path F
