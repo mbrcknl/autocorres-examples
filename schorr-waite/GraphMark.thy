@@ -1,18 +1,14 @@
 theory GraphMark
-imports "~/verification/mainline/l4v/tools/autocorres/AutoCorres"
+imports AutoCorres
 begin
 
 section {* Graph reachability *}
 
-text {*
-  Given a type \emph{'a} of pointers to nodes, a function \emph{e} which maps a pointer into a
-  node to the set of pointers out of that node, and a set \emph{R} of pointers to root objects,
-  then \emph{reach e N R} inductively defines the set of pointers to nodes that are reachable by
-  \emph{e} from \emph{R}. The parameter \emph{N} may be used to declare a set of pointers which
-  are considered unreachable by definition, and typically contains one or more distinguished
-  pointers, such as the null pointer.
-*}
-
+(* The set of pointers reachable by e from R, defined inductively, given:
+   - a type 'a of pointers to nodes,
+   - a function e which maps a pointer into a node to the set of pointers out of that node,
+   - a set R of pointers to root objects,
+   - a set N of null pointers which are considered unreachable. *)
 inductive_set reach :: "('a \<Rightarrow> 'a set) \<Rightarrow> 'a set \<Rightarrow> 'a set \<Rightarrow> 'a set"
   for e :: "'a \<Rightarrow> 'a set" and N :: "'a set" and R :: "'a set"
   where
@@ -21,65 +17,41 @@ inductive_set reach :: "('a \<Rightarrow> 'a set) \<Rightarrow> 'a set \<Rightar
 
 section {* Specification of a graph-marking algorithm *}
 
-text {*
-  We load the C program here to gain access to various types and constants for the specification.
-*}
-
+(* Load the C program for access to types and constants for the specification. *)
 install_C_file "graph_mark.c"
 autocorres [heap_abs_syntax] "graph_mark.c"
 
-text {* The type of the \emph{mark} field of the \emph{node} record. *}
+(* The type of the 'mark' field of the 'node' record. *)
 type_synonym mark = "32 word"
 
-text {* The type of predicates over the global program state. *}
+(* The type of predicates over the global program state. *)
 type_synonym state_pred = "lifted_globals \<Rightarrow> bool"
 
-text {* The type of graph marking procedures. *}
+(* The type of graph marking procedures. *)
 type_synonym mark_proc = "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> (unit \<times> lifted_globals) set \<times> bool"
 
-text {*
-  For a pointer to node \emph{p} and state \emph{s}, the pointers out of the node are given by
-  \emph{out s p}.
-*}
-
+(* For a pointer-to-node p and state s, the pointers out of the node are given by (out s p). *)
 definition out :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr set" where
   "out s p \<equiv> { s[p]\<rightarrow>left, s[p]\<rightarrow>right }"
 
-text {*
-  Given an unsigned \emph{m}, a set \emph{R} of pointers to nodes, and a global state \emph{s},
-  \emph{mark_set m R s} is a new state that is the same as \emph{s}, except that the \emph{mark}
-  field of each node pointed to by \emph{R} has been set to \emph{m}.
-*}
-
+(* Update the state by marking nodes pointed to by R with the mark value m. *)
 definition mark_set :: "mark \<Rightarrow> node_C ptr set \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "mark_set m R \<equiv> heap_node_C_update (\<lambda> h p. mark_C_update (If (p \<in> R) m) (h p))"
 
-text {*
-  For a state \emph{s} and set \emph{R} of pointers to nodes, \emph{reach_p s R} is the set of
-  nodes reachable in state \emph{s} from \emph{R}, and is given by a suitable parameterisation
-  of the \emph{reach} relation.
-*}
-
+(* The set of node pointers reachable from R in state s. *)
 abbreviation (input) reach_p :: "lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> node_C ptr set" where
   "reach_p s R \<equiv> reach (out s) {NULL} R"
 
-text {*
-  Given an arbitrary post-condition \emph{P}, and pointer-to-node \emph{root}, we can state a
-  corresponding sufficient pre-condition. For \emph{P} to be true of the final state, it is
-  sufficient to ensure that reachable nodes are valid and unmarked in the initial state, and
-  that \emph{P} is true of a suitably modified copy of the initial state. Although not strictly
-  the \emph{weakest} possible precondition, it is the weakest for the cases we care about.
-*}
-
+(* If P is the desired post-condition, it is sufficient to ensure that reachable nodes are valid
+   and unmarked in the initial state, and that P is true of a suitably modified copy of the initial
+   state. *)
 definition mark_precondition :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> state_pred" where
   "mark_precondition P root \<equiv> \<lambda> s. let R = reach_p s {root} in
     (\<forall> p \<in> R. is_valid_node_C s p \<and> s[p]\<rightarrow>mark = 0) \<and> P (mark_set 3 R s)"
 
-text {*
-  A graph-marking procedure \emph{mark_proc} is totally correct if, for every post-condition
-  \emph{P} and root pointer \emph{root}, the following Hoare triple is valid.
-*}
-
+(* We consider a graph-marking procedure totally correct if, for every post-condition P and root
+   pointer such that the precondition is satisfied, the procedure terminates in a state in which
+   P is true. *)
 definition mark_correct :: "mark_proc \<Rightarrow> bool" where
   "mark_correct mark_proc \<equiv> \<forall> P root. \<lbrace> mark_precondition P root \<rbrace> mark_proc root \<lbrace> \<lambda> _. P \<rbrace>!"
 
@@ -90,27 +62,27 @@ text {*
   show the total correctness of the Schorr-Waite graph marking procedure.
 *}
 
-subsection {* Graph reachability lemmas *}
+subsection {* General graph reachability lemmas *}
 
 lemma reach_subset: assumes "R \<subseteq> S" shows "reach e N R \<subseteq> reach e N S"
   proof -
-    { fix p have "p \<in> reach e N R \<Longrightarrow> R \<subseteq> S \<Longrightarrow> p \<in> reach e N S"
-      by (induction rule: reach.induct) auto }
+    { fix p
+      have "p \<in> reach e N R \<Longrightarrow> R \<subseteq> S \<Longrightarrow> p \<in> reach e N S"
+        by (induction rule: reach.induct) auto }
     thus ?thesis using assms by auto
   qed
 
-lemma reachable_excluded:
-  assumes "R \<subseteq> N"
-  shows "reach e N R = {}"
+lemma reach_excluded: assumes "R \<subseteq> N" shows "reach e N R = {}"
   proof -
-    { fix p have "p \<in> reach e N R \<Longrightarrow> \<not> R \<subseteq> N"
-      by (induction rule: reach.induct) auto }
+    { fix p
+      have "p \<in> reach e N R \<Longrightarrow> \<not> R \<subseteq> N"
+        by (induction rule: reach.induct) auto }
     thus ?thesis using assms by auto
   qed
 
-lemmas reachable_excluded_simps [simp] =
-  reachable_excluded[of "{}" N for N, simplified]
-  reachable_excluded[of N N for N, simplified]
+lemmas reach_excluded_simps [simp] =
+  reach_excluded[of "{}" N for N, simplified]
+  reach_excluded[of N N for N, simplified]
 
 lemma reach_incl_excluded:
   assumes "R' = M \<union> R" "M \<subseteq> N"
@@ -154,7 +126,7 @@ lemma reach_decompose:
   qed
 
 lemma reach_exclude: "reach e N R = S \<Longrightarrow> P \<inter> S = {} \<Longrightarrow> N' = P \<union> N \<Longrightarrow> reach e N' R = S"
-  by (metis Un_empty_left reach_decompose reachable_excluded_simps(1))
+  by (metis Un_empty_left reach_decompose reach_excluded_simps(1))
 
 lemmas reach_exclude_one = reach_exclude[where P="{p}" for p, simplified]
 
@@ -181,6 +153,8 @@ lemma reach_closure_extend:
 
 lemmas reach_closure_extend_p = reach_closure_extend
   [where E="{p}" and N="insert NULL ps" for p ps, simplified]
+
+subsection {* Graph reachability lemmas for nodes *}
 
 lemma reach_rotate:
   assumes
@@ -248,7 +222,28 @@ lemma reach_left:
   "s[p]\<rightarrow>left \<noteq> NULL \<Longrightarrow> p \<noteq> NULL \<Longrightarrow> s[p]\<rightarrow>left \<in> reach_p s {p,q}"
   using out_def insertCI singletonD by auto
 
-subsection {* State update lemmas *}
+subsection {* Graph update congruence *}
+
+lemma heap_node_C_update_id [simp]: "heap_node_C_update id s = s"
+  by simp
+
+lemma heap_node_C_update_cong:
+  "f (heap_node_C s) = g (heap_node_C s) \<Longrightarrow> heap_node_C_update f s = heap_node_C_update g s"
+  by simp
+
+lemmas heap_node_C_update_same [simp] = heap_node_C_update_cong[where g=id, simplified]
+
+lemma heap_node_C_update_compose:
+  "heap_node_C_update f (heap_node_C_update g s) = heap_node_C_update (\<lambda> h. f (g h)) s"
+  by simp
+
+lemma node_eq_elements:
+  "heap_node_C s p = heap_node_C t p
+    \<longleftrightarrow> s[p]\<rightarrow>left = t[p]\<rightarrow>left \<and> s[p]\<rightarrow>right = t[p]\<rightarrow>right \<and> s[p]\<rightarrow>mark = t[p]\<rightarrow>mark"
+  by (metis graph_mark.get_node_left_def graph_mark.get_node_mark_def
+            graph_mark.get_node_right_def node_C_idupdates(1))
+
+subsection {* State updates which don't modify the graph linkage *}
 
 definition mark_incr :: "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals" where
   "mark_incr p \<equiv> heap_node_C_update (\<lambda> h. h(p := mark_C_update (\<lambda> m. m + 1) (h p)))"
@@ -293,9 +288,38 @@ lemma mark_incr_ptr_upd:
           graph_mark.update_node_left_def graph_mark.update_node_right_def
           lifted_globals.surjective lifted_globals.update_convs(5) node_C_updupd_diff(1,2))+
 
+lemma mark_C_update_id [simp]: "mark_C_update id n = n"
+  by (metis id_apply mark_C_update_def node_C.exhaust)
+
+lemma mark_C_update_cong:
+  "f (mark_C n) = g (mark_C n) \<Longrightarrow> mark_C_update f n = mark_C_update g n"
+  by (metis mark_C_def mark_C_update_def node_C.exhaust)
+
+lemmas mark_C_update_same [simp] = mark_C_update_cong[where g=id, simplified]
+
+lemma mark_set_same:
+  assumes "P \<subseteq> F" "\<forall> p \<in> F. s[p]\<rightarrow>mark = m"
+  shows "mark_set m P s = s"
+  unfolding mark_set_def
+  apply (rule heap_node_C_update_same)
+  apply (rule ext)
+  apply (rule mark_C_update_same)
+  apply (insert assms)
+  by (auto simp: graph_mark.get_node_mark_def)
+
+lemmas mark_set_empty [simp] = mark_set_same[of "{}" "{}", simplified]
+
+lemma mark_set_get [elim]:
+  "p \<in> R \<Longrightarrow> (mark_set m R s)[p]\<rightarrow>mark = m"
+  by (simp add: mark_set_def graph_mark.get_node_mark_def)
+
+subsection {* Sum over a reachable set *}
+
 lemma setsum_extract_reach:
   "p \<noteq> NULL \<Longrightarrow> (\<Sum> p \<in> reach_p s {p,q}. f p) = f p + (\<Sum> p \<in> reach_p s {p,q} - {p}. f p)"
   by (auto simp: reach_root setsum.remove)
+
+subsection {* Invariant definition *}
 
 definition heaps_differ_at :: "lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set \<Rightarrow> bool" where
   "heaps_differ_at s t U \<equiv> \<exists> f. t = heap_node_C_update (\<lambda>h p. if p \<in> U then f p else h p) s"
@@ -345,46 +369,12 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
         (\<forall> p \<in> Z. s[p]\<rightarrow>mark = 0 \<and> links_same_at s t p) \<and>
         (\<forall> p \<in> R. t[p]\<rightarrow>mark = 3 \<and> is_valid_node_C s p))"
 
+subsection {* Variant definition *}
+
 fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
   "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach_p s {p,q})"
 
-lemma heap_node_C_update_id [simp]: "heap_node_C_update id s = s"
-  by simp
-
-lemma heap_node_C_update_cong:
-  "f (heap_node_C s) = g (heap_node_C s) \<Longrightarrow> heap_node_C_update f s = heap_node_C_update g s"
-  by simp
-
-lemmas heap_node_C_update_same [simp] = heap_node_C_update_cong[where g=id, simplified]
-
-lemma mark_C_update_id [simp]: "mark_C_update id n = n"
-  by (metis id_apply mark_C_update_def node_C.exhaust)
-
-lemma mark_C_update_cong:
-  "f (mark_C n) = g (mark_C n) \<Longrightarrow> mark_C_update f n = mark_C_update g n"
-  by (metis mark_C_def mark_C_update_def node_C.exhaust)
-
-lemmas mark_C_update_same [simp] = mark_C_update_cong[where g=id, simplified]
-
-lemma mark_set_same:
-  assumes "P \<subseteq> F" "\<forall> p \<in> F. s[p]\<rightarrow>mark = m"
-  shows "mark_set m P s = s"
-  unfolding mark_set_def
-  apply (rule heap_node_C_update_same)
-  apply (rule ext)
-  apply (rule mark_C_update_same)
-  apply (insert assms)
-  by (auto simp: graph_mark.get_node_mark_def)
-
-lemmas mark_set_empty [simp] = mark_set_same[of "{}" "{}", simplified]
-
-lemma mark_set_get [elim]:
-  "p \<in> R \<Longrightarrow> (mark_set m R s)[p]\<rightarrow>mark = m"
-  by (simp add: mark_set_def graph_mark.get_node_mark_def)
-
-lemma heap_node_C_update_compose:
-  "heap_node_C_update f (heap_node_C_update g s) = heap_node_C_update (\<lambda> h. f (g h)) s"
-  by simp
+subsection {* Lemmas about invariant preservation *}
 
 lemma heaps_differ_at_alt:
   "heaps_differ_at s t U \<equiv> t = heap_node_C_update (\<lambda>h p. if p \<in> U then heap_node_C t p else h p) s"
@@ -409,9 +399,6 @@ lemma heaps_differ_at_id: "heaps_differ_at t t U"
   apply (rule exI[of _ "heap_node_C t"])
   by simp
 
-lemma wtf_no_no_no: "(if c then t else if c then n else f) = (if c then t else f)"
-  by simp
-
 lemma heaps_differ_at_sym_imp:
   assumes "heaps_differ_at t s U"
   shows "heaps_differ_at s t U"
@@ -424,7 +411,7 @@ lemma heaps_differ_at_sym_imp:
       apply (rule exI[of _ "heap_node_C t"])
       apply (subst H)
       apply (subst heap_node_C_update_compose)
-      apply (subst wtf_no_no_no)
+      apply (subst if_fold)
       by simp
   qed
 
@@ -447,12 +434,6 @@ lemma heaps_differ_at_p:
     by (rule exI[of _ f]; rule heap_node_C_update_cong; rule ext;
         simp add: assms(1) fun_upd_def)+
   qed
-
-lemma node_eq_elements:
-  "heap_node_C s p = heap_node_C t p
-    \<longleftrightarrow> s[p]\<rightarrow>left = t[p]\<rightarrow>left \<and> s[p]\<rightarrow>right = t[p]\<rightarrow>right \<and> s[p]\<rightarrow>mark = t[p]\<rightarrow>mark"
-  by (metis graph_mark.get_node_left_def graph_mark.get_node_mark_def
-            graph_mark.get_node_right_def node_C_idupdates(1))
 
 lemma heaps_differ_at_replace:
   assumes
@@ -488,6 +469,13 @@ lemma heaps_differ_at_shrink':
 lemmas heaps_differ_at_shrink
   = heaps_differ_at_shrink'[OF _ heaps_differ_at_replace]
 
+lemma heaps_differ_at:
+  "heaps_differ_at s t U \<Longrightarrow> heap_node_C s p \<noteq> heap_node_C t p \<Longrightarrow> p \<in> U"
+  by (cases "p \<in> U"; clarsimp simp: heaps_differ_at_def)
+
+lemma path_ok_extend: "path_ok z s t N r q p ps \<Longrightarrow> N \<subseteq> M \<Longrightarrow> path_ok z s t M r q p ps"
+  by (induction ps arbitrary: z q p) auto
+
 lemma path_ok_upd_other:
   assumes
     "n \<notin> set ps"
@@ -505,6 +493,13 @@ lemma path_ok_imp:
   shows "path_ok True s t N root q p ps"
   using assms by (cases ps; clarsimp)
 
+lemma path_False_mark_non_zero: "path_ok False s t N r q p ps \<Longrightarrow> s[n]\<rightarrow>mark = 0 \<Longrightarrow> n \<notin> set ps"
+  by (induction ps arbitrary: q p) auto
+
+subsection {* Methods for proving invariant preservation *}
+
+method try_solve methods m = (m; fail)?
+
 method rotate_p for path :: "node_C ptr list" and F :: "node_C ptr set" =
   (rule exI[of _ path]; rule exI[of _ F];
    clarsimp simp: fun_upd_def heaps_differ_at_p path_ok_upd_other;
@@ -517,18 +512,6 @@ method step_back for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "nod
    erule heaps_differ_at_shrink[where V="{p}", simplified node_eq_elements];
    (rule Diff_insert | clarsimp simp: heaps_differ_at_id heaps_differ_at_p fun_upd_def))
 
-lemma path_False_mark_non_zero: "path_ok False s t N r q p ps \<Longrightarrow> s[n]\<rightarrow>mark = 0 \<Longrightarrow> n \<notin> set ps"
-  by (induction ps arbitrary: q p) auto
-
-lemma heaps_differ_at:
-  "heaps_differ_at s t U \<Longrightarrow> heap_node_C s p \<noteq> heap_node_C t p \<Longrightarrow> p \<in> U"
-  by (cases "p \<in> U"; clarsimp simp: heaps_differ_at_def)
-
-lemma path_ok_extend: "path_ok z s t N r q p ps \<Longrightarrow> N \<subseteq> M \<Longrightarrow> path_ok z s t M r q p ps"
-  by (induction ps arbitrary: z q p) auto
-
-method try_solve methods m = (m; fail)?
-
 method step_forward for left :: "node_C ptr" and path :: "node_C ptr list" and F :: "node_C ptr set" =
   (rule exI[of _ "left # path"]; rule exI[of _ F];
    clarsimp simp: fun_upd_def heaps_differ_at_p path_False_mark_non_zero;
@@ -537,6 +520,8 @@ method step_forward for left :: "node_C ptr" and path :: "node_C ptr list" and F
    intro conjI; try_solve \<open>clarsimp simp: reach_exclude_one[OF _ _ insert_commute]\<close>;
    (rule path_ok_upd_other, clarsimp simp: path_False_mark_non_zero)+;
    elim path_ok_extend; blast)
+
+subsection {* Proof of correctness *}
 
 lemma graph_mark'_correct': "\<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
   unfolding mark_precondition_def graph_mark'_def
