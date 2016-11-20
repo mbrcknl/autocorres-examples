@@ -28,7 +28,7 @@ type_synonym mark = "32 word"
 type_synonym state_pred = "lifted_globals \<Rightarrow> bool"
 
 (* The type of graph marking procedures. *)
-type_synonym mark_proc = "node_C ptr \<Rightarrow> lifted_globals \<Rightarrow> (unit \<times> lifted_globals) set \<times> bool"
+type_synonym mark_proc = "node_C ptr \<Rightarrow> (lifted_globals, unit) nondet_monad"
 
 (* For a pointer-to-node p and state s, the pointers out of the node are given by (out s p). *)
 definition out :: "lifted_globals \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr set" where
@@ -53,7 +53,7 @@ definition mark_precondition :: "state_pred \<Rightarrow> node_C ptr \<Rightarro
    pointer such that the precondition is satisfied, the procedure terminates in a state in which
    P is true. *)
 definition mark_correct :: "mark_proc \<Rightarrow> bool" where
-  "mark_correct mark_proc \<equiv> \<forall> P root. \<lbrace> mark_precondition P root \<rbrace> mark_proc root \<lbrace> \<lambda> _. P \<rbrace>!"
+  "mark_correct mark_proc \<equiv> \<forall> P root. \<lbrace> mark_precondition P root \<rbrace> mark_proc root \<lbrace> \<lambda>_. P \<rbrace>!"
 
 section {* Proof of correctness *}
 
@@ -348,13 +348,14 @@ where
 
 primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> state_pred" where
   "mark_invariant P root (p,q) s =
-    (\<exists> t path F.
+    (\<exists> t. (* final state *)
+     \<exists> path. (* from p to root *)
+     \<exists> F. (* finished nodes *)
       let
-        R = reach_p t {root};
-        M = set path \<union> F;
-        N = insert NULL M;
-        U = R - F;
-        Z = R - M
+        R = reach_p t {root}; (* reachable nodes *)
+        M = set path \<union> F; (* marked nodes *)
+        U = R - F; (* unfinished nodes *)
+        Z = R - M (* zero-marked nodes *)
       in
         P t \<and>
         heaps_differ_at s t U \<and>
@@ -365,7 +366,7 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
         reach (out t) (set (NULL # path)) F = F \<and>
         set path \<inter> F = {} \<and>
         R = reach_p s {p,q} \<and>
-        path_ok True s t N root q p path \<and>
+        path_ok True s t (insert NULL M) root q p path \<and>
         (\<forall> p \<in> Z. s[p]\<rightarrow>mark = 0 \<and> links_same_at s t p) \<and>
         (\<forall> p \<in> R. t[p]\<rightarrow>mark = 3 \<and> is_valid_node_C s p))"
 
@@ -527,9 +528,9 @@ lemma graph_mark'_correct': "\<lbrace> mark_precondition P root \<rbrace> graph_
   unfolding mark_precondition_def graph_mark'_def
   unfolding mark_incr_def[symmetric]
   unfolding whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
-  apply (wp; clarsimp simp: mark_incr_ptr_upd)
+  apply (wp; clarsimp)
   subgoal for p q s t path F
-   apply (cases path; clarsimp simp: Let_def)
+   apply (cases path; clarsimp simp: Let_def mark_incr_ptr_upd)
    subgoal for ps
     apply (subst setsum_extract_reach[of p], assumption)+
     apply (cases "s[p]\<rightarrow>left = p";
