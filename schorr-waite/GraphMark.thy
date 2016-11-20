@@ -97,8 +97,12 @@ lemma reach_incl_excluded:
     show ?thesis using assms by blast
   qed
 
-lemmas reach_incl_null
-  = reach_incl_excluded[where M="{NULL}" and N="{NULL}", simplified]
+lemmas reach_incl_null' =
+  reach_incl_excluded[where M="{null}" and N="{null}" for null, simplified]
+
+lemmas reach_incl_null =
+  reach_incl_null'[OF refl]
+  reach_incl_null'[OF insert_commute]
 
 lemma reach_decompose:
   "reach e N R = reach e N (E \<inter> reach e N R) \<union> reach e (E \<union> N) R"
@@ -280,7 +284,7 @@ sublocale mark_set_link_read_stable?: link_read_stable "mark_set m R"
   by (auto simp: mark_set_def fun_upd_def
                  graph_mark.get_node_left_def graph_mark.get_node_right_def)
 
-lemma mark_incr_ptr_upd:
+lemma mark_incr_ptr_upd [simp]:
   "(mark_incr q s)[p\<rightarrow>left := v] = mark_incr q s[p\<rightarrow>left := v]"
   "(mark_incr q s)[p\<rightarrow>right := v] = mark_incr q s[p\<rightarrow>right := v]"
   unfolding mark_incr_def
@@ -348,14 +352,14 @@ where
 
 primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> state_pred" where
   "mark_invariant P root (p,q) s =
-    (\<exists> t. (* final state *)
-     \<exists> path. (* from p to root *)
-     \<exists> F. (* finished nodes *)
+    (\<exists> t.     (* final state    *)
+     \<exists> path.  (* from p to root *)
+     \<exists> F.     (* finished nodes *)
       let
-        R = reach_p t {root}; (* reachable nodes *)
-        M = set path \<union> F; (* marked nodes *)
-        U = R - F; (* unfinished nodes *)
-        Z = R - M (* zero-marked nodes *)
+        R = reach_p t {root}; (* reachable nodes   *)
+        M = set path \<union> F;     (* marked nodes      *)
+        U = R - F;            (* unfinished nodes  *)
+        Z = R - M             (* zero-marked nodes *)
       in
         P t \<and>
         heaps_differ_at s t U \<and>
@@ -377,6 +381,9 @@ fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<
 
 subsection {* Lemmas about invariant preservation *}
 
+lemma heaps_differ_nowhere [iff]: "heaps_differ_at s t {} \<longleftrightarrow> s = t"
+  by (auto simp: heaps_differ_at_def)
+
 lemma heaps_differ_at_alt:
   "heaps_differ_at s t U \<equiv> t = heap_node_C_update (\<lambda>h p. if p \<in> U then heap_node_C t p else h p) s"
   unfolding heaps_differ_at_def atomize_eq
@@ -395,7 +402,7 @@ lemma heaps_differ_at_alt:
       by blast
   qed
 
-lemma heaps_differ_at_id: "heaps_differ_at t t U"
+lemma heaps_differ_at_id [simp]: "heaps_differ_at t t U"
   unfolding heaps_differ_at_def
   apply (rule exI[of _ "heap_node_C t"])
   by simp
@@ -416,7 +423,7 @@ lemma heaps_differ_at_sym_imp:
       by simp
   qed
 
-lemma heaps_differ_at_p:
+lemma heaps_differ_at_p [simp]:
   assumes
     "p \<in> U"
     "heaps_differ_at s t U"
@@ -502,25 +509,22 @@ subsection {* Methods for proving invariant preservation *}
 method try_solve methods m = (m; fail)?
 
 method rotate for path :: "node_C ptr list" and F :: "node_C ptr set" =
-  (rule exI[of _ path]; rule exI[of _ F];
-   clarsimp simp: fun_upd_def heaps_differ_at_p path_ok_upd_other;
-   rule ccontr; clarsimp)
+  (rule exI[of _ path]; rule exI[of _ F]; auto simp: fun_upd_def path_ok_upd_other)
+
+method retreat for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "node_C ptr set" =
+  (rule exI[of _ ps]; rule exI[of _ "insert p F"]; frule reach_closure_extend_p;
+   clarsimp simp: fun_upd_def out_def path_ok_upd_other path_ok_imp;
+   erule heaps_differ_at_shrink[where V="{p}", simplified node_eq_elements];
+   (rule Diff_insert | clarsimp simp: fun_upd_def))
 
 method advance for left :: "node_C ptr" and path :: "node_C ptr list" and F :: "node_C ptr set" =
   (rule exI[of _ "left # path"]; rule exI[of _ F];
-   clarsimp simp: fun_upd_def heaps_differ_at_p path_False_mark_non_zero;
+   clarsimp simp: fun_upd_def path_False_mark_non_zero;
    frule heaps_differ_at[where p=left]; clarsimp simp: node_eq_elements;
    frule bspec[of _ _ left]; clarsimp simp: path_False_mark_non_zero;
    intro conjI; try_solve \<open>clarsimp simp: reach_exclude_one[OF _ _ insert_commute]\<close>;
    (rule path_ok_upd_other, clarsimp simp: path_False_mark_non_zero)+;
    elim path_ok_extend; blast)
-
-method retreat for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "node_C ptr set" =
-  (rule exI[of _ ps]; rule exI[of _ "insert p F"];
-   ((frule reach_closure_extend_p; clarsimp simp: fun_upd_def), fastforce simp: out_def);
-   clarsimp simp: path_ok_upd_other path_ok_imp;
-   erule heaps_differ_at_shrink[where V="{p}", simplified node_eq_elements];
-   (rule Diff_insert | clarsimp simp: heaps_differ_at_id heaps_differ_at_p fun_upd_def))
 
 subsection {* Proof of correctness *}
 
@@ -528,9 +532,10 @@ lemma graph_mark'_correct': "\<lbrace> mark_precondition P root \<rbrace> graph_
   unfolding mark_precondition_def graph_mark'_def
   unfolding mark_incr_def[symmetric]
   unfolding whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
+  using [[ goals_limit=18 ]]
   apply (wp; clarsimp)
   subgoal for p q s t path F
-   apply (cases path; clarsimp simp: Let_def mark_incr_ptr_upd)
+   apply (cases path; clarsimp simp: Let_def)
    subgoal for ps
     apply (subst setsum_extract_reach[of p], assumption)+
     apply (cases "s[p]\<rightarrow>left = p";
@@ -557,18 +562,18 @@ lemma graph_mark'_correct': "\<lbrace> mark_precondition P root \<rbrace> graph_
     done
    done
   subgoal for q s t path F
-   apply (cases path; cases "root = NULL"; clarsimp simp: Let_def heaps_differ_at_def)
+   apply (cases path; cases "root \<in> F"; clarsimp simp: Let_def)
    apply (frule reach_subset[of "{root}" F "out t" "{NULL}", simplified])
    by auto
   subgoal for s
    apply (rule exI[of _ "mark_set 3 (reach (out s) {NULL} {root}) s"];
           rule exI[of _ "if root = NULL then [] else [root]"];
           rule exI[of _ "{}"])
-   apply (auto simp: Let_def reach_incl_null[OF insert_commute] heaps_differ_at_def)
+   apply (auto simp: Let_def reach_incl_null heaps_differ_at_def)
    apply (simp add: mark_set_def)
    apply (rule exI[of _ "mark_C_update (If True 3) \<circ> heap_node_C s"])
-   apply (rule heap_node_C_update_cong, rule ext)
-   by clarsimp
+   apply (rule heap_node_C_update_cong)
+   by auto
   done
 
 theorem graph_mark'_correct: "mark_correct graph_mark'"
