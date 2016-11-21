@@ -338,7 +338,7 @@ primrec
   path_ok :: "bool \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set
     \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr list \<Rightarrow> bool"
 where
-  "path_ok z s t N r q p []        = (p = NULL \<and> q = r \<and> (z \<longrightarrow> r \<in> N))" |
+  "path_ok z s t N r q p []        = (p = NULL \<and> q = r \<and> (z \<longrightarrow> q \<in> N))" |
   "path_ok z s t N r q p (p' # ps) = (p = p' \<and>
      (s[p]\<rightarrow>mark = 0 \<and> z \<and>
         compare_links t p (s[p]\<rightarrow>left, s[p]\<rightarrow>right) \<and>
@@ -413,17 +413,15 @@ lemma heaps_differ_at_sym_imp:
   proof -
     obtain f where
       H: "s = heap_node_C_update (\<lambda> h p. if p \<in> U then f p else h p) t"
-      using assms(1) by (simp add: heaps_differ_at_def) blast
+      using assms by (simp add: heaps_differ_at_def) blast
     show ?thesis
-      apply (unfold heaps_differ_at_def)
-      apply (rule exI[of _ "heap_node_C t"])
-      apply (subst H)
-      apply (subst heap_node_C_update_compose)
-      apply (subst if_fold)
-      by simp
+      unfolding heaps_differ_at_alt H heap_node_C_update_compose
+      apply (rule trans[OF heap_node_C_update_id[symmetric]])
+      apply (rule heap_node_C_update_cong)
+      by auto
   qed
 
-lemma heaps_differ_at_p [simp]:
+lemma heaps_differ_at_p:
   assumes
     "p \<in> U"
     "heaps_differ_at s t U"
@@ -509,18 +507,19 @@ subsection {* Methods for proving invariant preservation *}
 method try_solve methods m = (m; fail)?
 
 method rotate for path :: "node_C ptr list" and F :: "node_C ptr set" =
-  (rule exI[of _ path]; rule exI[of _ F]; auto simp: fun_upd_def path_ok_upd_other)
+  (rule exI[of _ path]; rule exI[of _ F];
+   auto simp: fun_upd_def path_ok_upd_other heaps_differ_at_p)
 
 method retreat for ps :: "node_C ptr list" and p :: "node_C ptr" and F :: "node_C ptr set" =
   (rule exI[of _ ps]; rule exI[of _ "insert p F"]; frule reach_closure_extend_p;
    clarsimp simp: fun_upd_def out_def path_ok_upd_other path_ok_imp;
    erule heaps_differ_at_shrink[where V="{p}", simplified node_eq_elements];
-   (rule Diff_insert | clarsimp simp: fun_upd_def))
+   (rule Diff_insert | clarsimp simp: fun_upd_def heaps_differ_at_p))
 
 method advance for left :: "node_C ptr" and path :: "node_C ptr list" and F :: "node_C ptr set" =
   (rule exI[of _ "left # path"]; rule exI[of _ F];
    clarsimp simp: fun_upd_def path_False_mark_non_zero;
-   frule heaps_differ_at[where p=left]; clarsimp simp: node_eq_elements;
+   frule heaps_differ_at[where p=left]; clarsimp simp: node_eq_elements heaps_differ_at_p;
    frule bspec[of _ _ left]; clarsimp simp: path_False_mark_non_zero;
    intro conjI; try_solve \<open>clarsimp simp: reach_exclude_one[OF _ _ insert_commute]\<close>;
    (rule path_ok_upd_other, clarsimp simp: path_False_mark_non_zero)+;
