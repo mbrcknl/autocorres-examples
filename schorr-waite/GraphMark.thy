@@ -338,8 +338,8 @@ primrec
   path_ok :: "bool \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set
     \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr list \<Rightarrow> bool"
 where
-  "path_ok z s t W r q p []        = (p = NULL \<and> q = r \<and> (z \<longrightarrow> q \<in> W))" |
-  "path_ok z s t W r q p (p' # ps) = (p = p' \<and>
+  "path_ok z s t W r q p []        = (p = NULL \<and> q = r \<and> (z \<longrightarrow> q \<in> W))"
+| "path_ok z s t W r q p (p' # ps) = (p = p' \<and>
      (s[p]\<rightarrow>mark = 0 \<and> z \<and>
         compare_links t p (s[p]\<rightarrow>left, s[p]\<rightarrow>right) \<and>
         path_ok False s t W r p q ps \<or>
@@ -352,14 +352,14 @@ where
 
 primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> state_pred" where
   "mark_invariant P root (p,q) s =
-    (\<exists> t.     (* final state         *)
-     \<exists> path.  (* from p back to root *)
-     \<exists> F.     (* finished (3) nodes  *)
+    (\<exists> t.     (* final state               *)
+     \<exists> path.  (* from p back to root       *)
+     \<exists> F.     (* finished nodes (mark = 3) *)
       let
-        R = reach_p t {root}; (* all reachable nodes   *)
-        V = set path \<union> F;     (* visited nodes         *)
-        U = R - F;            (* unfinished nodes      *)
-        Z = R - V             (* unmarked (zero) nodes *)
+        R = reach_p t {root}; (* all reachable nodes          *)
+        V = set path \<union> F;     (* visited nodes                *)
+        U = R - F;            (* unfinished nodes             *)
+        Z = R - V             (* unmarked nodes (mark = zero) *)
       in
         P t \<and>
         heaps_differ_at s t U \<and>
@@ -396,11 +396,7 @@ lemma heaps_differ_at_alt:
       apply (subst H)
       apply (rule heap_node_C_update_cong, rule ext)
       by (clarsimp simp: H)
-  next
-    assume "t = heap_node_C_update (\<lambda>h p. if p \<in> U then heap_node_C t p else h p) s"
-    thus "\<exists>f. t = heap_node_C_update (\<lambda>h p. if p \<in> U then f p else h p) s"
-      by blast
-  qed
+  qed blast
 
 lemma heaps_differ_at_id [simp]: "heaps_differ_at t t U"
   unfolding heaps_differ_at_def
@@ -530,7 +526,6 @@ subsection {* Proof of correctness *}
 lemma graph_mark'_correct': "\<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
   unfolding mark_precondition_def graph_mark'_def mark_incr_def[symmetric]
   unfolding whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
-  using [[ goals_limit=18 ]]
   apply (wp; clarsimp)
   subgoal for p q s t path F
    apply (cases path; clarsimp simp: Let_def)
