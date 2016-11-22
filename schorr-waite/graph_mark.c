@@ -1,7 +1,8 @@
 // The Schorr-Waite graph-marking procedure.
 //
-// This version is based on a description by David Gries, modified to allow null pointers
-// anywhere in the graph (including the root).
+// This version is based on a description by David Gries,
+// modified to allow null pointers anywhere in the graph
+// (including at the root).
 //
 // http://www.cs.cornell.edu/courses/cs312/2007fa/lectures/lec21-schorr-waite.pdf
 // (retrieved 4 September 2016).
