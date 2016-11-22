@@ -377,7 +377,7 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
 subsection {* Variant definition *}
 
 fun mark_measure :: "(node_C ptr \<times> node_C ptr) \<times> lifted_globals \<Rightarrow> nat" where
-  "mark_measure ((p,q),s) = setsum (\<lambda> p. 3 - unat s[p]\<rightarrow>mark) (reach_p s {p,q})"
+  "mark_measure ((p,q),s) = (\<Sum> p \<in> reach_p s {p,q}. 3 - unat s[p]\<rightarrow>mark)"
 
 subsection {* Lemmas about invariant preservation *}
 
