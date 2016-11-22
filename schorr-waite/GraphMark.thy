@@ -19,7 +19,30 @@ section {* Specification of a graph-marking algorithm *}
 
 (* Load the C program for access to types and constants for the specification. *)
 install_C_file "graph_mark.c"
+  print_theorems
+  thm graph_mark_global_addresses.graph_mark_body_def
+  typ "('s,'p,'f) com"
+  term exec
+  term hrs_mem
+  term h_val
+
 autocorres [heap_abs_syntax] "graph_mark.c"
+  print_theorems
+  thm graph_mark.graph_mark'_def
+  thm graph_mark.graph_mark'_ac_corres
+  typ "('s,'a) nondet_monad"
+  term heap_node_C
+  term heap_node_C_update
+  term mark_C
+  term mark_C_update
+  term left_C
+  term left_C_update
+  term valid
+  term validNF
+  thm validNF_return skip_nf validNF_gets validNF_modify validNF_state_assert
+  thm validNF_condition validNF_bind
+  thm whileLoop_wp whileLoop_wp_inv whileLoop_add_inv
+  thm whileLoop_wp_inv validNF_whileLoop_inv
 
 (* The type of the 'mark' field of the 'node' record. *)
 type_synonym mark = "32 word"
@@ -526,6 +549,7 @@ subsection {* Proof of correctness *}
 lemma graph_mark'_correct': "\<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
   unfolding mark_precondition_def graph_mark'_def mark_incr_def[symmetric]
   unfolding whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
+  using [[ goals_limit=18 ]]
   apply (wp; clarsimp)
   subgoal for p q s t path F
    apply (cases path; clarsimp simp: Let_def)
