@@ -338,28 +338,28 @@ primrec
   path_ok :: "bool \<Rightarrow> lifted_globals \<Rightarrow> lifted_globals \<Rightarrow> node_C ptr set
     \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr list \<Rightarrow> bool"
 where
-  "path_ok z s t N r q p []        = (p = NULL \<and> q = r \<and> (z \<longrightarrow> q \<in> N))" |
-  "path_ok z s t N r q p (p' # ps) = (p = p' \<and>
+  "path_ok z s t W r q p []        = (p = NULL \<and> q = r \<and> (z \<longrightarrow> q \<in> W))" |
+  "path_ok z s t W r q p (p' # ps) = (p = p' \<and>
      (s[p]\<rightarrow>mark = 0 \<and> z \<and>
         compare_links t p (s[p]\<rightarrow>left, s[p]\<rightarrow>right) \<and>
-        path_ok False s t N r p q ps \<or>
-      s[p]\<rightarrow>mark = 1 \<and> (z \<longrightarrow> q \<in> N) \<and>
+        path_ok False s t W r p q ps \<or>
+      s[p]\<rightarrow>mark = 1 \<and> (z \<longrightarrow> q \<in> W) \<and>
         compare_links t p (q, s[p]\<rightarrow>left) \<and>
-        path_ok False s t N r p s[p]\<rightarrow>right ps \<or>
-      s[p]\<rightarrow>mark = 2 \<and> (z \<longrightarrow> q \<in> N) \<and> t[p]\<rightarrow>left \<in> N \<and>
+        path_ok False s t W r p s[p]\<rightarrow>right ps \<or>
+      s[p]\<rightarrow>mark = 2 \<and> (z \<longrightarrow> q \<in> W) \<and> t[p]\<rightarrow>left \<in> W \<and>
         compare_links t p (s[p]\<rightarrow>right, q) \<and>
-        path_ok False s t N r p s[p]\<rightarrow>left ps))"
+        path_ok False s t W r p s[p]\<rightarrow>left ps))"
 
 primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> node_C ptr \<times> node_C ptr \<Rightarrow> state_pred" where
   "mark_invariant P root (p,q) s =
-    (\<exists> t.     (* final state    *)
-     \<exists> path.  (* from p to root *)
-     \<exists> F.     (* finished nodes *)
+    (\<exists> t.     (* final state         *)
+     \<exists> path.  (* from p back to root *)
+     \<exists> F.     (* finished (3) nodes  *)
       let
-        R = reach_p t {root}; (* reachable nodes   *)
-        M = set path \<union> F;     (* marked nodes      *)
-        U = R - F;            (* unfinished nodes  *)
-        Z = R - M             (* zero-marked nodes *)
+        R = reach_p t {root}; (* all reachable nodes   *)
+        V = set path \<union> F;     (* visited nodes         *)
+        U = R - F;            (* unfinished nodes      *)
+        Z = R - V             (* unmarked (zero) nodes *)
       in
         P t \<and>
         heaps_differ_at s t U \<and>
@@ -370,7 +370,7 @@ primrec mark_invariant :: "state_pred \<Rightarrow> node_C ptr \<Rightarrow> nod
         reach (out t) (set (NULL # path)) F = F \<and>
         set path \<inter> F = {} \<and>
         R = reach_p s {p,q} \<and>
-        path_ok True s t (insert NULL M) root q p path \<and>
+        path_ok True s t (insert NULL V) root q p path \<and>
         (\<forall> p \<in> Z. s[p]\<rightarrow>mark = 0 \<and> links_same_at s t p) \<and>
         (\<forall> p \<in> R. t[p]\<rightarrow>mark = 3 \<and> is_valid_node_C s p))"
 
@@ -479,27 +479,27 @@ lemma heaps_differ_at:
   "heaps_differ_at s t U \<Longrightarrow> heap_node_C s p \<noteq> heap_node_C t p \<Longrightarrow> p \<in> U"
   by (cases "p \<in> U"; clarsimp simp: heaps_differ_at_def)
 
-lemma path_ok_extend: "path_ok z s t N r q p ps \<Longrightarrow> N \<subseteq> M \<Longrightarrow> path_ok z s t M r q p ps"
+lemma path_ok_extend: "path_ok z s t W r q p ps \<Longrightarrow> W \<subseteq> W' \<Longrightarrow> path_ok z s t W' r q p ps"
   by (induction ps arbitrary: z q p) auto
 
 lemma path_ok_upd_other:
   assumes
     "n \<notin> set ps"
-    "path_ok z s t N root q p ps"
+    "path_ok z s t W root q p ps"
   shows
-    "path_ok z (mark_incr n s) t N root q p ps"
-    "path_ok z (s[n\<rightarrow>left := l]) t N root q p ps"
-    "path_ok z (s[n\<rightarrow>right := r]) t N root q p ps"
+    "path_ok z (mark_incr n s) t W root q p ps"
+    "path_ok z (s[n\<rightarrow>left := l]) t W root q p ps"
+    "path_ok z (s[n\<rightarrow>right := r]) t W root q p ps"
   using assms
   by (induction ps arbitrary: p q z; clarsimp;
       elim disjE; clarsimp simp: fun_upd_def)+
 
 lemma path_ok_imp:
-  assumes "q \<in> N" "path_ok False s t N root q p ps"
-  shows "path_ok True s t N root q p ps"
+  assumes "q \<in> W" "path_ok False s t W root q p ps"
+  shows "path_ok True s t W root q p ps"
   using assms by (cases ps; clarsimp)
 
-lemma path_False_mark_non_zero: "path_ok False s t N r q p ps \<Longrightarrow> s[n]\<rightarrow>mark = 0 \<Longrightarrow> n \<notin> set ps"
+lemma path_False_mark_non_zero: "path_ok False s t W r q p ps \<Longrightarrow> s[n]\<rightarrow>mark = 0 \<Longrightarrow> n \<notin> set ps"
   by (induction ps arbitrary: q p) auto
 
 subsection {* Methods for proving invariant preservation *}
@@ -528,8 +528,7 @@ method advance for left :: "node_C ptr" and path :: "node_C ptr list" and F :: "
 subsection {* Proof of correctness *}
 
 lemma graph_mark'_correct': "\<lbrace> mark_precondition P root \<rbrace> graph_mark' root \<lbrace> \<lambda> _. P \<rbrace>!"
-  unfolding mark_precondition_def graph_mark'_def
-  unfolding mark_incr_def[symmetric]
+  unfolding mark_precondition_def graph_mark'_def mark_incr_def[symmetric]
   unfolding whileLoop_add_inv[where I="mark_invariant P root" and M="mark_measure"]
   using [[ goals_limit=18 ]]
   apply (wp; clarsimp)
