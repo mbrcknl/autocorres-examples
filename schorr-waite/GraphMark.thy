@@ -40,9 +40,13 @@ autocorres [heap_abs_syntax] "graph_mark.c"
   term valid
   term validNF
   thm validNF_return skip_nf validNF_gets validNF_modify validNF_state_assert
+  thm validNF_return[where x=3 and P="\<lambda>r s. r = 4"]
+  thm validNF_return[where x=3 and P="\<lambda>r s. r = 3"]
   thm validNF_condition validNF_bind
-  thm whileLoop_wp whileLoop_wp_inv whileLoop_add_inv
-  thm whileLoop_wp_inv validNF_whileLoop_inv
+  thm whileLoop_wp
+  thm whileLoop_wp_inv
+  thm whileLoop_add_inv
+  thm validNF_whileLoop_inv
 
 (* The type of the 'mark' field of the 'node' record. *)
 type_synonym mark = "32 word"
